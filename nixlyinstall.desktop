@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=NixlyInstall
+GenericName=NixlyInstall
+Comment=NixlyInstall Applicatio
+Icon=application-x-executable
+Exec=nixlyinstall
+Terminal=false
+Categories=Utility;Qt;
+StartupNotify=true
+X-Window-Type=Normal
+X-Window-Tiling=True
