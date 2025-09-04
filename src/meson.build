@@ -1,4 +1,4 @@
-executable('nixlycc',
+executable('nixlyinstall',
   'main.cpp',
   dependencies: [
     dependency('qt6', modules: ['Core', 'Gui', 'Widgets', 'WaylandClient', 'WaylandCompositor']),
