@@ -8,10 +8,13 @@
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QPalette>
-#include <QListWidget>
 #include <QStackedWidget>
 #include <QLabel>
 #include <QFont>
+#include <QPushButton>
+#include <QButtonGroup>
+#include <QAbstractButton>
+#include <QPixmap>
 
 class MainWindow : public QMainWindow
 {
@@ -19,7 +22,7 @@ public:
     MainWindow(QWidget *parent = nullptr) : QMainWindow(parent)
     {
         // Set window title
-        setWindowTitle("NixlyCC");
+        setWindowTitle("NixlyInstall");
         
         // Set window flags for tiling window managers
         setWindowFlags(Qt::Window | Qt::WindowTitleHint | 
@@ -34,137 +37,264 @@ public:
         setAttribute(Qt::WA_NoSystemBackground);
         
         // Set initial size - will be managed by tiling WM
-        resize(800, 600);
+        resize(1000, 700);
         
         // Create central widget and main layout
         QWidget *centralWidget = new QWidget(this);
-        QHBoxLayout *mainLayout = new QHBoxLayout(centralWidget);
+        QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
         mainLayout->setContentsMargins(0, 0, 0, 0);
         mainLayout->setSpacing(0);
         
-        // Create left menu panel (200px wide with dark background)
-        QWidget *leftPanel = new QWidget();
-        leftPanel->setFixedWidth(200);
-        leftPanel->setAutoFillBackground(true);
+        // Create top menu panel (60px high with dark background)
+        QWidget *topPanel = new QWidget();
+        topPanel->setFixedHeight(60);
+        topPanel->setAutoFillBackground(true);
         
-        // Set left panel background color to #121212 (RGB: 18, 18, 18)
-        QPalette leftPalette = leftPanel->palette();
-        leftPalette.setColor(QPalette::Window, QColor(18, 18, 18));
-        leftPanel->setPalette(leftPalette);
+        // Set top panel background color to #121212 (RGB: 18, 18, 18)
+        QPalette topPalette = topPanel->palette();
+        topPalette.setColor(QPalette::Window, QColor(18, 18, 18));
+        topPanel->setPalette(topPalette);
         
-        // Create menu list for the left panel
-        QVBoxLayout *leftLayout = new QVBoxLayout(leftPanel);
-        leftLayout->setContentsMargins(0, 0, 0, 0);
+        // Create horizontal layout for menu buttons
+        QHBoxLayout *topLayout = new QHBoxLayout(topPanel);
+        topLayout->setContentsMargins(10, 5, 10, 5);
+        topLayout->setSpacing(5);
         
-        QListWidget *menuList = new QListWidget();
+        // Create button group for exclusive selection
+        QButtonGroup *menuButtonGroup = new QButtonGroup(this);
         
-        // Set a larger font for the menu items
-        QFont menuFont = menuList->font();
-        menuFont.setPointSize(10); // Explicitly set point size (equivalent to ~21-24px)
-        menuFont.setBold(false);    // Make the font bold for better visibility
-        menuList->setFont(menuFont);
+        // Create menu buttons
+        QStringList menuItems = {
+            "Welcome to NixlyOS",
+            "Internet Connection", 
+            "Github",
+            "Select Drive",
+            "Settings",
+            "Install"
+        };
         
-        menuList->setStyleSheet(
-            "QListWidget { background-color: #121212; color: white; border: none; }"
-            "QListWidget::item { padding: 10px; }"
-            "QListWidget::item:selected { background-color: #2A2A2A; }"
-            "QListWidget::item:hover { background-color: #1E1E1E; }"
-        );
+        QList<QPushButton*> menuButtons;
         
-        // Add menu items
-        menuList->addItem("System Information");
-        menuList->addItem("User Settings");
-        menuList->addItem("Monitors");
-        menuList->addItem("Applications");
-        menuList->addItem("Mouse & Keyboard");
-        menuList->addItem("Shortcuts");
-        menuList->addItem("Statusbar & Tiling");
-        menuList->addItem("Neovim IDE");
-        menuList->addItem("Storage & Sharing");
-        menuList->addItem("Firewall & Security");
-        menuList->addItem("Backup");
-        menuList->addItem("Gaming");
-        menuList->addItem("WinVM Settings");
-        menuList->addItem("SystemCleanup");
+        for (int i = 0; i < menuItems.size(); ++i) {
+            QPushButton *button = new QPushButton(menuItems[i]);
+            button->setCheckable(true);
+            button->setMinimumHeight(40);
+            button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            
+            // Set button style
+            button->setStyleSheet(
+                "QPushButton {"
+                "    background-color: #2A2A2A;"
+                "    color: white;"
+                "    border: 1px solid #444444;"
+                "    border-radius: 5px;"
+                "    padding: 8px 16px;"
+                "    font-size: 12px;"
+                "    font-weight: bold;"
+                "}"
+                "QPushButton:hover {"
+                "    background-color: #3A3A3A;"
+                "    border-color: #666666;"
+                "}"
+                "QPushButton:checked {"
+                "    background-color: #0078D4;"
+                "    border-color: #106EBE;"
+                "}"
+                "QPushButton:pressed {"
+                "    background-color: #005A9E;"
+                "}"
+                "QPushButton:disabled {"
+                "    background-color: #1A1A1A;"
+                "    color: #666666;"
+                "    border-color: #333333;"
+                "}"
+            );
+            
+            menuButtons.append(button);
+            menuButtonGroup->addButton(button, i);
+            topLayout->addWidget(button);
+        }
         
-        leftLayout->addWidget(menuList);
+        // Create content area with slightly lighter background
+        QWidget *contentPanel = new QWidget();
+        contentPanel->setAutoFillBackground(true);
         
-        // Create right content area with slightly lighter background
-        QWidget *rightPanel = new QWidget();
-        rightPanel->setAutoFillBackground(true);
-        
-        // Set right panel background color to #1A1A1A (RGB: 26, 26, 26)
-        QPalette rightPalette = rightPanel->palette();
-        rightPalette.setColor(QPalette::Window, QColor(26, 26, 26));
-        rightPanel->setPalette(rightPalette);
+        // Set content panel background color to #1A1A1A (RGB: 26, 26, 26)
+        QPalette contentPalette = contentPanel->palette();
+        contentPalette.setColor(QPalette::Window, QColor(26, 26, 26));
+        contentPanel->setPalette(contentPalette);
         
         // Create stacked widget for content pages
         QStackedWidget *contentStack = new QStackedWidget();
         
-        // Function to create a content page with a title
-        auto createPage = [](const QString &title) {
+        // Function to create a content page with a title and description
+        auto createPage = [](const QString &title, const QString &description) {
             QWidget *page = new QWidget();
             QVBoxLayout *layout = new QVBoxLayout(page);
+            layout->setContentsMargins(40, 40, 40, 40);
+            layout->setSpacing(20);
             
             // Add title
             QLabel *titleLabel = new QLabel(title);
-            titleLabel->setStyleSheet("color: white; font-size: 24px; font-weight: bold; margin-bottom: 20px;");
+            titleLabel->setStyleSheet("color: white; font-size: 28px; font-weight: bold;");
+            titleLabel->setAlignment(Qt::AlignCenter);
             layout->addWidget(titleLabel);
             
-            // Add content placeholder
-            QLabel *contentLabel = new QLabel(title + " settings and configuration options will appear here.");
-            contentLabel->setStyleSheet("color: #cccccc; font-size: 16px;");
-            contentLabel->setWordWrap(true);
-            layout->addWidget(contentLabel);
+            // Add description
+            QLabel *descLabel = new QLabel(description);
+            descLabel->setStyleSheet("color: #cccccc; font-size: 16px; line-height: 1.5;");
+            descLabel->setWordWrap(true);
+            descLabel->setAlignment(Qt::AlignCenter);
+            layout->addWidget(descLabel);
             
             layout->addStretch();
             return page;
         };
         
         // Create pages for each menu item
-        QWidget *sysInfoPage = createPage("System Information");
-        QWidget *userSettingsPage = createPage("User Settings");
-        QWidget *monitorsPage = createPage("Monitors");
-        QWidget *applicationsPage = createPage("Applications");
-        QWidget *mouseKeyboardPage = createPage("Mouse & Keyboard");
-        QWidget *shortcutsPage = createPage("Shortcuts");
-        QWidget *statusbarTilingPage = createPage("Statusbar & Tiling");
-        QWidget *neovimIDEPage = createPage("Neovim IDE");
-        QWidget *storageSharePage = createPage("Storage & Sharing");
-        QWidget *firewallSecurityPage = createPage("Firewall & Security");
-        QWidget *backupPage = createPage("Backup");
-        QWidget *gamingPage = createPage("Gaming");
-        QWidget *winVMPage = createPage("WinVM Settings");
-        QWidget *systemCleanupPage = createPage("SystemCleanup");
+        // Special handling for Welcome page with logo
+        QWidget *welcomePage = new QWidget();
+        QVBoxLayout *welcomeLayout = new QVBoxLayout(welcomePage);
+        welcomeLayout->setContentsMargins(40, 40, 40, 40);
+        welcomeLayout->setSpacing(30);
+        
+        // Add logo
+        QLabel *logoLabel = new QLabel();
+        // Try multiple possible paths for the logo
+        QStringList logoPaths = {
+            "src/images/NixlyOS_logo.png",           // From build directory
+            "../src/images/NixlyOS_logo.png",        // From build subdirectory
+            "images/NixlyOS_logo.png",               // Relative to src
+            "/home/total/nixlyinstall/src/images/NixlyOS_logo.png"  // Absolute path
+        };
+        
+        QPixmap logo;
+        bool logoLoaded = false;
+        for (const QString &path : logoPaths) {
+            logo.load(path);
+            if (!logo.isNull()) {
+                logoLoaded = true;
+                break;
+            }
+        }
+        
+        if (logoLoaded) {
+            // Scale logo to appropriate size (max 320px width, maintain aspect ratio)
+            QPixmap scaledLogo = logo.scaled(320, 320, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            logoLabel->setPixmap(scaledLogo);
+        } else {
+            // Fallback if logo can't be loaded
+            logoLabel->setText("NixlyOS");
+            logoLabel->setStyleSheet("color: #0078D4; font-size: 32px; font-weight: bold;");
+        }
+        logoLabel->setAlignment(Qt::AlignCenter);
+        welcomeLayout->addWidget(logoLabel);
+        
+        // Add title
+        QLabel *welcomeTitleLabel = new QLabel("Welcome to NixlyOS");
+        welcomeTitleLabel->setStyleSheet("color: white; font-size: 28px; font-weight: bold;");
+        welcomeTitleLabel->setAlignment(Qt::AlignCenter);
+        welcomeLayout->addWidget(welcomeTitleLabel);
+        
+        // Add description
+        QLabel *welcomeDescLabel = new QLabel("Welcome to the NixlyOS installation wizard. This installer will guide you through "
+            "setting up your new NixlyOS system with all the necessary configurations. ");
+        welcomeDescLabel->setStyleSheet("color: #cccccc; font-size: 16px; line-height: 1.5;");
+        welcomeDescLabel->setWordWrap(true);
+        welcomeDescLabel->setAlignment(Qt::AlignCenter);
+        welcomeLayout->addWidget(welcomeDescLabel);
+        
+        // Add "Let's start" button
+        QPushButton *letsStartButton = new QPushButton("Let's start");
+        letsStartButton->setMinimumHeight(50);
+        letsStartButton->setMaximumWidth(200);
+        letsStartButton->setStyleSheet(
+            "QPushButton {"
+            "    background-color: #0078D4;"
+            "    color: white;"
+            "    border: none;"
+            "    border-radius: 8px;"
+            "    padding: 12px 24px;"
+            "    font-size: 16px;"
+            "    font-weight: bold;"
+            "}"
+            "QPushButton:hover {"
+            "    background-color: #106EBE;"
+            "}"
+            "QPushButton:pressed {"
+            "    background-color: #005A9E;"
+            "}"
+        );
+        
+        // Center the button
+        QHBoxLayout *buttonLayout = new QHBoxLayout();
+        buttonLayout->addStretch();
+        buttonLayout->addWidget(letsStartButton);
+        buttonLayout->addStretch();
+        welcomeLayout->addLayout(buttonLayout);
+        
+        welcomeLayout->addStretch();
+        
+        // Create other pages
+        QWidget *internetPage = createPage("Internet Connection", 
+            "Configure your internet connection settings. Ensure you have a stable internet "
+            "connection before proceeding with the installation.");
+            
+        QWidget *githubPage = createPage("Github", 
+            "Connect your Github account to sync your dotfiles and configurations. "
+            "This step is optional but recommended for developers.");
+            
+        QWidget *drivePage = createPage("Select Drive", 
+            "Choose the drive where NixlyOS will be installed. WARNING: All data on the "
+            "selected drive will be erased during installation.");
+            
+        QWidget *settingsPage = createPage("Settings", 
+            "Configure system settings including timezone, keyboard layout, user accounts, "
+            "and other system preferences.");
+            
+        QWidget *installPage = createPage("Install", 
+            "Ready to install NixlyOS! Review your settings and click install to begin "
+            "the installation process. This may take several minutes to complete.");
         
         // Add pages to stack
-        contentStack->addWidget(sysInfoPage);
-        contentStack->addWidget(userSettingsPage);
-        contentStack->addWidget(monitorsPage);
-        contentStack->addWidget(applicationsPage);
-        contentStack->addWidget(mouseKeyboardPage);
-        contentStack->addWidget(shortcutsPage);
-        contentStack->addWidget(statusbarTilingPage);
-        contentStack->addWidget(neovimIDEPage);
-        contentStack->addWidget(storageSharePage);
-        contentStack->addWidget(firewallSecurityPage);
-        contentStack->addWidget(backupPage);
-        contentStack->addWidget(gamingPage);
-        contentStack->addWidget(winVMPage);
-        contentStack->addWidget(systemCleanupPage);
+        contentStack->addWidget(welcomePage);
+        contentStack->addWidget(internetPage);
+        contentStack->addWidget(githubPage);
+        contentStack->addWidget(drivePage);
+        contentStack->addWidget(settingsPage);
+        contentStack->addWidget(installPage);
         
-        // Layout for right panel
-        QVBoxLayout *rightLayout = new QVBoxLayout(rightPanel);
-        rightLayout->setContentsMargins(20, 20, 20, 20);
-        rightLayout->addWidget(contentStack);
+        // Layout for content panel
+        QVBoxLayout *contentLayout = new QVBoxLayout(contentPanel);
+        contentLayout->setContentsMargins(0, 0, 0, 0);
+        contentLayout->addWidget(contentStack);
         
-        // Connect menu selection to content stack
-        connect(menuList, &QListWidget::currentRowChanged, contentStack, &QStackedWidget::setCurrentIndex);
-        menuList->setCurrentRow(0); // Select first item by default
+        // Disable all buttons except Welcome initially
+        for (int i = 1; i < menuButtons.size(); ++i) {
+            menuButtons[i]->setEnabled(false);
+        }
+        
+        // Connect "Let's start" button to enable Internet Connection and navigate to it
+        connect(letsStartButton, &QPushButton::clicked, [=]() {
+            menuButtons[1]->setEnabled(true);  // Enable Internet Connection button
+            menuButtons[1]->setChecked(true);  // Select Internet Connection button
+            contentStack->setCurrentIndex(1);  // Navigate to Internet Connection page
+        });
+        
+        // Connect menu button selection to content stack
+        connect(menuButtonGroup, QOverload<QAbstractButton*>::of(&QButtonGroup::buttonClicked),
+                [=](QAbstractButton* button) {
+                    int index = menuButtonGroup->id(button);
+                    contentStack->setCurrentIndex(index);
+                });
+        
+        // Select first button by default
+        menuButtons[0]->setChecked(true);
+        contentStack->setCurrentIndex(0);
         
         // Add panels to main layout
-        mainLayout->addWidget(leftPanel);
-        mainLayout->addWidget(rightPanel, 1); // Give right panel expanding space
+        mainLayout->addWidget(topPanel);
+        mainLayout->addWidget(contentPanel, 1); // Give content panel expanding space
         
         // Set central widget
         setCentralWidget(centralWidget);
@@ -226,8 +356,7 @@ int main(int argc, char *argv[])
     qputenv("QT_DEBUG_PLUGINS", "1");
     
     // Set application attributes before creating QApplication
-    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
-    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    // Note: High-DPI support is enabled by default in Qt6
     
     QApplication app(argc, argv);
     
