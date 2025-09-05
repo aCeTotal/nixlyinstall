@@ -30,6 +30,8 @@
             pkgs.wayland-utils
             pkgs.weston
             pkgs.libglvnd
+            pkgs.gh
+            pkgs.git
           ];
           shellHook = ''
             export QT_QPA_PLATFORM=wayland
