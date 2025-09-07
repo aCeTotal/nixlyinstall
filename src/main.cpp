@@ -1,6 +1,5 @@
 #include <QApplication>
 #include <QMainWindow>
-#include <QScreen>
 #include <QGuiApplication>
 #include <QWindow>
 #include <QtCore>
@@ -10,16 +9,13 @@
 #include <QPalette>
 #include <QStackedWidget>
 #include <QLabel>
-#include <QFont>
 #include <QPushButton>
 #include <QButtonGroup>
 #include <QAbstractButton>
 #include <QPixmap>
 #include <QLineEdit>
-#include <QScrollArea>
 #include <QProcess>
 #include <QTimer>
-#include <QNetworkInterface>
 #include <QRegularExpression>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
@@ -36,8 +32,6 @@
 class MainWindow : public QMainWindow
 {
 private:
-    bool lastEthernetState = false;
-    bool lastInternetState = false;
     bool isCheckingInternet = false;
     QTimer *refreshTimer = nullptr;
     QNetworkAccessManager *netManager = nullptr;
@@ -200,6 +194,15 @@ public:
         welcomeDescLabel->setWordWrap(true);
         welcomeDescLabel->setAlignment(Qt::AlignCenter);
         welcomeLayout->addWidget(welcomeDescLabel);
+
+        // Strong security/stability note (bold) under the description
+        QLabel *welcomeSecurityNote = new QLabel(
+            "<b>Before we begin, we want to be crystal clear: NixlyOS uses every method available to make your system and computer as secure and stable as possible — including strict control of open ports and full encryption of all partitions. If this is not acceptable, you should not start the installation of NixlyOS.</b>");
+        welcomeSecurityNote->setTextFormat(Qt::RichText);
+        welcomeSecurityNote->setWordWrap(true);
+        welcomeSecurityNote->setStyleSheet("color: #e6e6e6; font-size: 16px; line-height: 1.5; font-weight: bold;");
+        welcomeSecurityNote->setAlignment(Qt::AlignCenter);
+        welcomeLayout->addWidget(welcomeSecurityNote);
         
         QPushButton *letsStartButton = new QPushButton("Let's start!");
         letsStartButton->setMinimumHeight(50);
@@ -240,78 +243,14 @@ public:
         internetTitle->setAlignment(Qt::AlignCenter);
         internetLayout->addWidget(internetTitle);
         
-        QLabel *connectionStatus = new QLabel("Checking internet connection...");
-        connectionStatus->setStyleSheet("color: #cccccc; font-size: 16px;");
+        QLabel *connectionStatus = new QLabel("No internet access");
+        connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
         connectionStatus->setAlignment(Qt::AlignCenter);
         internetLayout->addWidget(connectionStatus);
         
-        QLabel *ethernetStatus = new QLabel();
-        ethernetStatus->setStyleSheet("font-size: 14px; color: #FF6B6B; margin-top: 10px;");
-        ethernetStatus->setAlignment(Qt::AlignCenter);
-        internetLayout->addWidget(ethernetStatus);
+        // Removed unused ethernet status label
         
-        QWidget *wifiContainer = new QWidget();
-        QVBoxLayout *wifiLayout = new QVBoxLayout(wifiContainer);
-        
-        QScrollArea *wifiScrollArea = new QScrollArea();
-        wifiScrollArea->setMinimumHeight(450);
-        wifiScrollArea->setMaximumHeight(450);
-        wifiScrollArea->setWidgetResizable(true);
-        wifiScrollArea->setStyleSheet(
-            "QScrollArea { background-color: #2A2A2A; border: 1px solid #444444; border-radius: 5px; }"
-            "QScrollBar:vertical { background-color: #1A1A1A; width: 12px; }"
-            "QScrollBar::handle:vertical { background-color: #444444; border-radius: 6px; }"
-        );
-        
-        QWidget *wifiListWidget = new QWidget();
-        QVBoxLayout *wifiListLayout = new QVBoxLayout(wifiListWidget);
-        wifiScrollArea->setWidget(wifiListWidget);
-        wifiLayout->addWidget(wifiScrollArea);
-        
-        QWidget *passwordContainer = new QWidget();
-        QVBoxLayout *passwordLayout = new QVBoxLayout(passwordContainer);
-        
-        QLabel *passwordLabel = new QLabel("Enter WiFi Password:");
-        passwordLabel->setStyleSheet("color: white; font-size: 16px; font-weight: bold;");
-        passwordLayout->addWidget(passwordLabel);
-        
-        QLineEdit *passwordInput = new QLineEdit();
-        passwordInput->setEchoMode(QLineEdit::Password);
-        passwordInput->setStyleSheet(
-            "QLineEdit {"
-            "    background-color: #2A2A2A;"
-            "    color: white;"
-            "    border: 1px solid #444444;"
-            "    border-radius: 5px;"
-            "    padding: 8px;"
-            "    font-size: 14px;"
-            "}"
-            "QLineEdit:focus {"
-            "    border-color: #0078D4;"
-            "}"
-        );
-        passwordLayout->addWidget(passwordInput);
-        
-        QPushButton *connectButton = new QPushButton("Connect");
-        connectButton->setStyleSheet(
-            "QPushButton {"
-            "    background-color: #0078D4;"
-            "    color: white;"
-            "    border: none;"
-            "    border-radius: 5px;"
-            "    padding: 8px 16px;"
-            "    font-size: 14px;"
-            "    font-weight: bold;"
-            "}"
-            "QPushButton:hover { background-color: #106EBE; }"
-            "QPushButton:pressed { background-color: #005A9E; }"
-        );
-        passwordLayout->addWidget(connectButton);
-        passwordContainer->hide();
-        
-        wifiLayout->addWidget(passwordContainer);
-        wifiContainer->hide();
-        internetLayout->addWidget(wifiContainer);
+        // Wi‑Fi UI removed; only internet status and continue button are shown
         
         QPushButton *continueButton = new QPushButton("Perfect! Let's continue!");
         continueButton->setMinimumHeight(40);
@@ -342,225 +281,493 @@ public:
         // network manager instance
         netManager = new QNetworkAccessManager(this);
         
-        // Function to check actual internet connectivity
+        // Function to check actual internet connectivity (HTTP, multiple endpoints, no TLS)
         std::function<void(QLabel*, QPushButton*)> checkInternetConnectivity;
         checkInternetConnectivity = [this, contentStack](QLabel* statusLabel, QPushButton* contButton) mutable {
             if (isCheckingInternet) return; // Prevent multiple simultaneous checks
-            
+
             isCheckingInternet = true;
-            QNetworkRequest request(QUrl("https://connectivitycheck.gstatic.com/generate_204"));
-            request.setRawHeader("User-Agent", "NixlyInstall");
-            
-            QNetworkReply *reply = netManager->get(request);
-            // timeout
-            QTimer *to = new QTimer(reply);
-            to->setSingleShot(true);
-            to->start(2000);
-            QObject::connect(to, &QTimer::timeout, reply, &QNetworkReply::abort);
-            
-            connect(reply, &QNetworkReply::finished, this, [this, contentStack, statusLabel, contButton, reply]() mutable {
-                isCheckingInternet = false; // Reset flag when check completes
-                // If user left the Internet page, do not touch UI
-                if (contentStack->currentIndex() != 1) {
-                    reply->deleteLater();
+
+            const QList<QUrl> urls = {
+                QUrl("http://connectivitycheck.gstatic.com/generate_204"),
+                QUrl("http://clients3.google.com/generate_204"),
+                QUrl("http://example.com/")
+            };
+
+            // recursive-like sequence using shared lambda
+            auto tryIndex = std::make_shared<std::function<void(int)>>();
+            *tryIndex = [=, this](int idx) mutable {
+                if (idx >= urls.size()) {
+                    // Final failure
+                    if (contentStack->currentIndex() == 1 && statusLabel && contButton) {
+                        statusLabel->setText("No internet access");
+                        statusLabel->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                        contButton->hide();
+                    }
+                    isCheckingInternet = false;
                     return;
                 }
-                if (!statusLabel || !contButton) {
+
+                QNetworkRequest request(urls[idx]);
+                request.setRawHeader("User-Agent", "NixlyInstall");
+                QNetworkReply *reply = netManager->get(request);
+
+                QTimer *to = new QTimer(reply);
+                to->setSingleShot(true);
+                to->start(2000);
+                QObject::connect(to, &QTimer::timeout, reply, &QNetworkReply::abort);
+
+                connect(reply, &QNetworkReply::finished, this, [=, this]() mutable {
+                    // If user left the Internet page, just end
+                    if (contentStack->currentIndex() != 1 || !statusLabel || !contButton) {
+                        reply->deleteLater();
+                        isCheckingInternet = false;
+                        return;
+                    }
+                    const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                    const bool ok = (reply->error() == QNetworkReply::NoError) && (http == 204 || http == 200);
                     reply->deleteLater();
-                    return;
-                }
-                
-                const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-                const bool ok = (reply->error() == QNetworkReply::NoError) && (http == 204 || http == 200);
-                if (ok) {
-                    if (!lastInternetState) { // Only update if state changed
-                        lastInternetState = true;
-                        statusLabel->setText("✓ Internet connection verified!");
+                    if (ok) {
+                        statusLabel->setText("✓ Internet access");
                         statusLabel->setStyleSheet("color: #00AA00; font-size: 16px; font-weight: bold;");
                         contButton->show();
+                        isCheckingInternet = false;
+                    } else {
+                        // Try next endpoint
+                        (*tryIndex)(idx + 1);
                     }
-                } else {
-                    // Always reflect failure immediately so it doesn't get stuck on "Checking..."
-                    lastInternetState = false;
-                    statusLabel->setText("No internet access detected");
-                    statusLabel->setStyleSheet("color: #FF6B6B; font-size: 16px;");
-                    contButton->hide();
-                }
-                reply->deleteLater();
-            });
+                });
+            };
+
+            // Kick off first endpoint
+            (*tryIndex)(0);
         };
         
         // Auto-refresh timer - faster for responsive updates, balanced to avoid races
         refreshTimer = new QTimer(this);
         refreshTimer->setInterval(800); // 0.8s
-        
-        // Function to check internet connection
-        std::function<void()> checkInternetConnection;
-        checkInternetConnection = [this, contentStack, ethernetStatus, connectionStatus, continueButton, wifiContainer, checkInternetConnectivity, passwordLabel, passwordContainer, wifiListLayout]() mutable {
-            // Only operate when Internet page is visible
-            if (contentStack->currentIndex() != 1) return;
-            // Check for active ethernet/cable connection and WiFi connection
-            QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
-            bool hasEthernet = false;
-            bool hasWifiLink = false;
-            
-            for (const QNetworkInterface &interface : interfaces) {
-                if (interface.flags().testFlag(QNetworkInterface::IsUp) &&
-                    interface.flags().testFlag(QNetworkInterface::IsRunning) &&
-                    !interface.flags().testFlag(QNetworkInterface::IsLoopBack) &&
-                    (interface.type() == QNetworkInterface::Ethernet || interface.type() == QNetworkInterface::Wifi)) {
-                    if (interface.type() == QNetworkInterface::Ethernet) {
-                        hasEthernet = true;
-                    }
-                    if (interface.type() == QNetworkInterface::Wifi) {
-                        // Consider WiFi "linked" if it has at least one non-loopback IPv4/IPv6 address
-                        const auto addrs = interface.addressEntries();
-                        for (const QNetworkAddressEntry &ae : addrs) {
-                            if (!ae.ip().isNull()) { hasWifiLink = true; break; }
-                        }
-                    }
-                }
-            }
-            
-            // Always check internet connectivity, but only update UI if state changes
-            if (hasEthernet) {
-                if (!lastEthernetState) {
-                    lastEthernetState = true;
-                    ethernetStatus->setText("✓ Ethernet connection detected");
-                    ethernetStatus->setStyleSheet("font-size: 14px; color: #00AA00; margin-top: 10px;");
-                    connectionStatus->setText("Checking internet...");
-                    connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
-                    wifiContainer->hide();
-                    continueButton->hide();
-                }
-                if (!isCheckingInternet) {
-                    checkInternetConnectivity(connectionStatus, continueButton);
-                }
-            } else if (hasWifiLink) {
-                // Wi-Fi link present but not necessarily internet
-                ethernetStatus->setText("✓ Wi-Fi link detected");
-                ethernetStatus->setStyleSheet("font-size:14px; color:#00AA00; margin-top:10px;");
-                connectionStatus->setText("Checking internet...");
-                connectionStatus->setStyleSheet("color:#FFAA00; font-size:16px;");
-                wifiContainer->hide();
-                continueButton->hide();
-                if (!isCheckingInternet) {
-                    checkInternetConnectivity(connectionStatus, continueButton);
-                }
-            } else {
-                // Transition from ethernet -> no ethernet
-                if (lastEthernetState) {
-                    lastEthernetState = false;
-                    lastInternetState = false; // Reset internet state when ethernet disconnects
-                    isCheckingInternet = false; // Reset checking flag
-                }
 
-                // Always update UI when no ethernet is present
-                ethernetStatus->setText("✗ No ethernet or Wi-Fi connection available");
-                ethernetStatus->setStyleSheet("font-size: 14px; color: #FF6B6B; margin-top: 10px;");
-                connectionStatus->setText("Please select a WiFi network:");
-                connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
-                continueButton->hide();
-                wifiContainer->show();
+        /*
+        // Switch to wpa_supplicant only (via wpa_cli) for Wi‑Fi scan/connect
 
-                // Clear existing WiFi entries to avoid duplicates on refresh
-                while (QLayoutItem *child = wifiListLayout->takeAt(0)) {
-                    if (child->widget()) child->widget()->deleteLater();
-                    delete child;
-                }
+        // Wi‑Fi helpers removed
 
-                // Scan for actual WiFi networks using nmcli (async)
-                QProcess *nmcliProcess = new QProcess(this);
-                QStringList args{ "device", "wifi", "list", "-t", "-f", "IN-USE,SSID,SECURITY" };
-                connect(nmcliProcess, &QProcess::finished, this, [=](int exitCode){
-                    QStringList wifiNetworks;
-                    if (exitCode == 0) {
-                        QString out = QString::fromUtf8(nmcliProcess->readAllStandardOutput());
-                        // Lines: "*:SSID:WPA2" or ":SSID:--"
-                        for (const QString &line : out.split('\n', Qt::SkipEmptyParts)) {
-                            QStringList parts = line.split(':');
-                            if (parts.size() >= 3) {
-                                const QString ssid = parts[1].trimmed();
-                                const QString security = parts[2].trimmed();
-                                if (!ssid.isEmpty() && ssid != "--") {
-                                    const bool secured = (security != "--");
-                                    wifiNetworks << (ssid + (secured ? " (Secured)" : " (Open)"));
-                                }
+        /*
+        // Helper: connect to Wi‑Fi via wpa_cli on a specific interface
+        std::function<void(const QString&, const QString&, const QString&, bool)> connectWithWpaCli;
+        connectWithWpaCli = [this, connectionStatus, continueButton, checkInternetConnectivity, sudoPath, wpaCliPath, networkctlPath, dhclientPath, udhcpcPath, busyboxPath](const QString &ifname, const QString &ssid, const QString &password, bool secured) mutable {
+            auto runCmd = [this, sudoPath](const QString &cmd, const QStringList &args, std::function<void(int, const QString&, const QString&)> cb) {
+                std::function<void(const QString&, bool)> startWith;
+                startWith = [=, this, &startWith](const QString &pwd, bool allowRetry) mutable {
+                    QProcess *p = new QProcess(this);
+                    QObject::connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [=, this](int exitCode, QProcess::ExitStatus){
+                        const QString out = QString::fromUtf8(p->readAllStandardOutput());
+                        const QString err = QString::fromUtf8(p->readAllStandardError());
+                        p->deleteLater();
+                        const bool needsPw = err.contains("password", Qt::CaseInsensitive) || err.contains("try again", Qt::CaseInsensitive);
+                        if (exitCode != 0 && needsPw && allowRetry) {
+                            bool ok = false;
+                            QString pw = QInputDialog::getText(nullptr, "Sudo password", "Enter sudo password:", QLineEdit::Password, QString(), &ok);
+                            if (ok && !pw.isEmpty()) {
+                                const_cast<MainWindow*>(this)->sudoPassword = pw;
+                                startWith(pw, false);
+                                return;
                             }
                         }
-                    }
-                    nmcliProcess->deleteLater();
+                        cb(exitCode, out, err);
+                    });
+                    QStringList fullArgs; fullArgs << "-S" << cmd; fullArgs << args;
+                    p->start(sudoPath, fullArgs);
+                    QByteArray pwb = (pwd + "\n").toUtf8();
+                    p->write(pwb);
+                    p->closeWriteChannel();
+                };
+                const QString pw = sudoPassword; // may be empty (press Enter)
+                startWith(pw, true);
+            };
+            
+            // Acquire DHCP on the given interface using a few fallbacks
+            auto acquireDhcp = [=]() {
+                connectionStatus->setText("Obtaining IP via DHCP...");
+                connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
+                auto tryNetworkctl = [=](std::function<void(bool)> next){
+                    if (!networkctlPath.isEmpty()) {
+                        runCmd(networkctlPath, QStringList() << "reload", [=](int, const QString&, const QString&){
+                            runCmd(networkctlPath, QStringList() << "renew" << ifname, [=](int rc, const QString&, const QString&){ next(rc == 0); });
+                        });
+                    } else next(false);
+                };
+                auto tryDhclient = [=](std::function<void(bool)> next){
+                    if (!dhclientPath.isEmpty()) {
+                        runCmd(dhclientPath, QStringList() << "-v" << "-r" << ifname, [=](int, const QString&, const QString&){
+                            runCmd(dhclientPath, QStringList() << "-v" << ifname, [=](int rc, const QString&, const QString&){ next(rc == 0); });
+                        });
+                    } else next(false);
+                };
+                auto tryUdhcpc = [=](std::function<void(bool)> next){
+                    if (!udhcpcPath.isEmpty()) {
+                        runCmd(udhcpcPath, QStringList() << "-i" << ifname << "-q" << "-t" << "3" << "-n", [=](int rc, const QString&, const QString&){ next(rc == 0); });
+                    } else if (!busyboxPath.isEmpty()) {
+                        runCmd(busyboxPath, QStringList() << "udhcpc" << "-i" << ifname << "-q" << "-t" << "3" << "-n", [=](int rc, const QString&, const QString&){ next(rc == 0); });
+                    } else next(false);
+                };
+                tryNetworkctl([=](bool ok1){
+                    if (ok1) { checkInternetConnectivity(connectionStatus, continueButton); return; }
+                    tryDhclient([=](bool ok2){
+                        if (ok2) { checkInternetConnectivity(connectionStatus, continueButton); return; }
+                        tryUdhcpc([=](bool ok3){
+                            if (ok3) { checkInternetConnectivity(connectionStatus, continueButton); return; }
+                            connectionStatus->setText("DHCP failed. Checking internet anyway...");
+                            connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
+                            checkInternetConnectivity(connectionStatus, continueButton);
+                        });
+                    });
+                });
+            };
 
-                    if (wifiNetworks.isEmpty()) {
+            // 1) add_network
+            runCmd(wpaCliPath, QStringList() << "-i" << ifname << "add_network", [=, this](int rc1, const QString &out1, const QString &){
+                if (rc1 != 0) {
+                    connectionStatus->setText("wpa_cli failed (add_network). Is wpa_supplicant running?");
+                    connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                    return;
+                }
+                QString netId = out1.trimmed();
+                if (netId.isEmpty()) netId = "0"; // best-effort
+
+                // 2) set ssid
+                const QString quotedSsid = QString("\"%1\"").arg(ssid);
+                runCmd(wpaCliPath, QStringList() << "-i" << ifname << "set_network" << netId << "ssid" << quotedSsid, [=, this](int rc2, const QString &, const QString &){
+                    if (rc2 != 0) {
+                        connectionStatus->setText("wpa_cli failed (set ssid)");
+                        connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                        return;
+                    }
+                    // 3) security params
+                    auto enableSelectSave = [=, this](const QString &nid){
+                        runCmd(wpaCliPath, QStringList() << "-i" << ifname << "enable_network" << nid, [=, this](int rc4, const QString &, const QString &){
+                            if (rc4 != 0) {
+                                connectionStatus->setText("wpa_cli failed (enable network)");
+                                connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                                return;
+                            }
+                            runCmd(wpaCliPath, QStringList() << "-i" << ifname << "select_network" << nid, [=, this](int rc5, const QString &, const QString &){
+                                if (rc5 != 0) {
+                                    connectionStatus->setText("wpa_cli failed (select network)");
+                                    connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                                    return;
+                                }
+                                runCmd(wpaCliPath, QStringList() << "-i" << ifname << "save_config", [=, this](int, const QString &, const QString &){
+                                    connectionStatus->setText("Connected to " + ssid + ".");
+                                    connectionStatus->setStyleSheet("color: #00AA00; font-size: 16px;");
+                                    acquireDhcp();
+                                });
+                            });
+                        });
+                    };
+
+                    if (secured) {
+                        const QString quotedPsk = QString("\"%1\"").arg(password);
+                        runCmd(wpaCliPath, QStringList() << "-i" << ifname << "set_network" << netId << "psk" << quotedPsk, [=, this](int rc3, const QString &, const QString &){
+                            if (rc3 != 0) {
+                                connectionStatus->setText("wpa_cli failed (set psk)");
+                                connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                                return;
+                            }
+                            enableSelectSave(netId);
+                        });
+                    } else {
+                        // Open network
+                        runCmd(wpaCliPath, QStringList() << "-i" << ifname << "set_network" << netId << "key_mgmt" << "NONE", [=, this](int rc3, const QString &, const QString &){
+                            if (rc3 != 0) {
+                                connectionStatus->setText("wpa_cli failed (set key_mgmt)");
+                                connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                                return;
+                            }
+                            enableSelectSave(netId);
+                        });
+                    }
+                });
+            });
+        };
+        */
+
+        // Helper to rescan and populate available Wi‑Fi networks safely
+        // Wi‑Fi scanning and connection code removed
+        /*
+            if (wifiScanInProgress) {
+                return; // avoid overlapping scans
+            }
+            wifiScanInProgress = true;
+            // Show container and clear previous entries
+            wifiContainer->show();
+            while (QLayoutItem *child = wifiListLayout->takeAt(0)) {
+                if (child->widget()) child->widget()->deleteLater();
+                delete child;
+            }
+            // 1) Gather Wi‑Fi interfaces from the OS
+            QStringList wifiIfaces;
+            const auto ifaces = QNetworkInterface::allInterfaces();
+            for (const QNetworkInterface &iface : ifaces) {
+                if (iface.type() == QNetworkInterface::Wifi) {
+                    wifiIfaces << iface.name();
+                }
+            }
+
+            if (wifiIfaces.isEmpty()) {
+                connectionStatus->setText("No Wi‑Fi devices found.");
+                connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                wifiScanInProgress = false;
+                return;
+            }
+
+            // 2) Iterate devices: wpa_cli scan + scan_results until we find networks
+            std::shared_ptr<std::function<void(int)>> scanNext = std::make_shared<std::function<void(int)>>();
+            *scanNext = [=, this](int idx) mutable {
+                    if (idx >= wifiIfaces.size()) {
                         connectionStatus->setText("No WiFi networks found. Retrying...");
                         connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
-                        wifiContainer->hide();
-                    } else {
+                        wifiScanInProgress = false;
+                        return;
+                    }
+                    const QString iface = wifiIfaces[idx];
+                    // Update status and run scan on this iface
+                    connectionStatus->setText(QString("Scanning Wi‑Fi on %1...").arg(iface));
+                    connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
+                    // Ensure interface is up before scanning (rfkill unblock + ip link up)
+                    QProcess *scanProc = new QProcess(this);
+                    QObject::connect(scanProc, &QProcess::started, this, [=, this]() {
+                        // First try sending just Enter to sudo -S
+                        scanProc->write("\n");
+                        scanProc->closeWriteChannel();
+                    });
+                    QObject::connect(scanProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [=, this](int exitCode, QProcess::ExitStatus){
+                        const QString out = QString::fromUtf8(scanProc->readAllStandardOutput());
+                        const QString err = QString::fromUtf8(scanProc->readAllStandardError());
+                        scanProc->deleteLater();
+                        if (exitCode != 0) {
+                            connectionStatus->setText(QString("Scan failed on %1: %2").arg(iface, err.left(120)));
+                            connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                            // If sudo password is required, prompt and retry once
+                            if (err.contains("password", Qt::CaseInsensitive) || err.contains("try again", Qt::CaseInsensitive)) {
+                                bool ok = false;
+                                QString pw = QInputDialog::getText(nullptr, "Sudo password", QString("Enter sudo password for scanning %1:").arg(iface), QLineEdit::Password, QString(), &ok);
+                                if (ok && !pw.isEmpty()) {
+                                    const_cast<MainWindow*>(this)->sudoPassword = pw;
+                                    QProcess *scanPw = new QProcess(this);
+                                    QObject::connect(scanPw, &QProcess::started, this, [=, this]() {
+                                        scanPw->write((pw + "\n").toUtf8());
+                                        scanPw->closeWriteChannel();
+                                    });
+                                    QObject::connect(scanPw, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [=, this](int code2, QProcess::ExitStatus){
+                                        const QString out2 = QString::fromUtf8(scanPw->readAllStandardOutput());
+                                        const QString err2 = QString::fromUtf8(scanPw->readAllStandardError());
+                                        scanPw->deleteLater();
+                                        if (code2 != 0) {
+                                            connectionStatus->setText(QString("Scan failed on %1: %2").arg(iface, err2.left(120)));
+                                            connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                                            QTimer::singleShot(900, this, [=, this]() { (*scanNext)(idx + 1); });
+                                            return;
+                                        }
+                                        // Parse output (out2)
+                                        QMap<QString, bool> ssidSecured; QString currentSsid; bool currentSecured = false;
+                                        const QStringList lines = out2.split('\n');
+                                        auto flushCurrent = [&](){ if (!currentSsid.isEmpty()) { bool prev = ssidSecured.value(currentSsid, false); ssidSecured[currentSsid] = prev || currentSecured; currentSsid.clear(); currentSecured = false; } };
+                                        for (QString line : lines) { line = line.trimmed(); if (line.startsWith("BSS ")) { flushCurrent(); continue; } if (line.startsWith("SSID:")) { currentSsid = line.mid(5).trimmed(); continue; } if (line.startsWith("RSN:") || line.startsWith("WPA:")) { currentSecured = true; continue; } }
+                                        flushCurrent();
+                                        QStringList wifiNetworks; for (auto it = ssidSecured.constBegin(); it != ssidSecured.constEnd(); ++it) { const QString &ssid = it.key(); if (ssid.isEmpty() || ssid == "<hidden>") continue; const bool secured = it.value(); wifiNetworks << (ssid + (secured ? " (Secured)" : " (Open)")); }
+                                        if (wifiNetworks.isEmpty()) { connectionStatus->setText(QString("No Wi‑Fi networks found on %1").arg(iface)); connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;"); QTimer::singleShot(900, this, [=, this]() { (*scanNext)(idx + 1); }); return; }
+                                        connectionStatus->setText(QString("Found %1 WiFi networks:").arg(wifiNetworks.size()));
+                                        connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
+                                        for (const QString &network : wifiNetworks) {
+                                            QPushButton *wifiButton = new QPushButton(network);
+                                            wifiButton->setStyleSheet("QPushButton { background-color: #2A2A2A; color: white; border: 1px solid #444444; border-radius: 5px; padding: 12px; font-size: 14px; text-align: left; }" "QPushButton:hover { background-color: #3A3A3A; }" "QPushButton:pressed { background-color: #1A1A1A; }");
+                                            QString ssid = network; bool secured = false; if (ssid.endsWith(" (Secured)")) { ssid.chop(QString(" (Secured)").size()); secured = true; } else if (ssid.endsWith(" (Open)")) { ssid.chop(QString(" (Open)").size()); }
+                                            wifiButton->setProperty("ssid", ssid); wifiButton->setProperty("secured", secured); wifiButton->setProperty("ifname", iface);
+                                            connect(wifiButton, &QPushButton::clicked, this, [=, this]() { const QString ssidClicked = wifiButton->property("ssid").toString(); const bool needPassword = wifiButton->property("secured").toBool(); const QString ifn = wifiButton->property("ifname").toString(); if (needPassword) { passwordLabel->setText("Enter password for " + ssidClicked + ":"); passwordLabel->setProperty("ssid", ssidClicked); passwordLabel->setProperty("ifname", ifn); passwordContainer->show(); } else { connectionStatus->setText("Connecting to " + ssidClicked + "..."); connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;"); connectWithWpaCli(ifn, ssidClicked, QString(), false); } });
+                                            wifiListLayout->addWidget(wifiButton);
+                                        }
+                                        wifiScanInProgress = false;
+                                    });
+                                    scanPw->start(sudoPath, QStringList() << "-S" << iwPath << "dev" << iface << "scan");
+                                    return;
+                                }
+                            }
+                            // Try a fallback without sudo (in case capabilities allow it)
+                            QProcess *scan2 = new QProcess(this);
+                            QObject::connect(scan2, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [=, this](int ec2, QProcess::ExitStatus){
+                                const QString out2 = QString::fromUtf8(scan2->readAllStandardOutput());
+                                const QString err2 = QString::fromUtf8(scan2->readAllStandardError());
+                                scan2->deleteLater();
+                                if (ec2 != 0) {
+                                    // Try pkexec as a last resort (may show polkit dialog on Live ISO)
+                                    QProcess *scan3 = new QProcess(this);
+                                    QObject::connect(scan3, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [=, this](int ec3, QProcess::ExitStatus){
+                                        const QString out3 = QString::fromUtf8(scan3->readAllStandardOutput());
+                                        const QString err3 = QString::fromUtf8(scan3->readAllStandardError());
+                                        scan3->deleteLater();
+                                        if (ec3 != 0) {
+                                            // Give up on this iface; try next after a short backoff
+                                            connectionStatus->setText(QString("Scan failed on %1: %2").arg(iface, err3.left(120)));
+                                            connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                                            QTimer::singleShot(900, this, [=, this]() { (*scanNext)(idx + 1); });
+                                            return;
+                                        }
+                                        // Parse out3
+                                        QMap<QString, bool> ssidSecured; QString currentSsid; bool currentSecured = false;
+                                        const QStringList lines3 = out3.split('\n');
+                                        auto flushCurrent3 = [&](){ if (!currentSsid.isEmpty()) { bool prev = ssidSecured.value(currentSsid, false); ssidSecured[currentSsid] = prev || currentSecured; currentSsid.clear(); currentSecured = false; } };
+                                        for (QString line : lines3) { line = line.trimmed(); if (line.startsWith("BSS ")) { flushCurrent3(); continue; } if (line.startsWith("SSID:")) { currentSsid = line.mid(5).trimmed(); continue; } if (line.startsWith("RSN:") || line.startsWith("WPA:")) { currentSecured = true; continue; } }
+                                        flushCurrent3();
+                                        QStringList wifiNetworks; for (auto it = ssidSecured.constBegin(); it != ssidSecured.constEnd(); ++it) { const QString &ssid = it.key(); if (ssid.isEmpty() || ssid == "<hidden>") continue; const bool secured = it.value(); wifiNetworks << (ssid + (secured ? " (Secured)" : " (Open)")); }
+                                        if (wifiNetworks.isEmpty()) { connectionStatus->setText(QString("No Wi‑Fi networks found on %1").arg(iface)); connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;"); QTimer::singleShot(900, this, [=, this]() { (*scanNext)(idx + 1); }); return; }
+                                        connectionStatus->setText(QString("Found %1 WiFi networks:").arg(wifiNetworks.size()));
+                                        connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
+                                        for (const QString &network : wifiNetworks) {
+                                            QPushButton *wifiButton = new QPushButton(network);
+                                            wifiButton->setStyleSheet("QPushButton { background-color: #2A2A2A; color: white; border: 1px solid #444444; border-radius: 5px; padding: 12px; font-size: 14px; text-align: left; }" "QPushButton:hover { background-color: #3A3A3A; }" "QPushButton:pressed { background-color: #1A1A1A; }");
+                                            QString ssid = network; bool secured = false; if (ssid.endsWith(" (Secured)")) { ssid.chop(QString(" (Secured)").size()); secured = true; } else if (ssid.endsWith(" (Open)")) { ssid.chop(QString(" (Open)").size()); }
+                                            wifiButton->setProperty("ssid", ssid); wifiButton->setProperty("secured", secured); wifiButton->setProperty("ifname", iface);
+                                            connect(wifiButton, &QPushButton::clicked, this, [=, this]() { const QString ssidClicked = wifiButton->property("ssid").toString(); const bool needPassword = wifiButton->property("secured").toBool(); const QString ifn = wifiButton->property("ifname").toString(); if (needPassword) { passwordLabel->setText("Enter password for " + ssidClicked + ":"); passwordLabel->setProperty("ssid", ssidClicked); passwordLabel->setProperty("ifname", ifn); passwordContainer->show(); } else { connectionStatus->setText("Connecting to " + ssidClicked + "..."); connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;"); connectWithWpaCli(ifn, ssidClicked, QString(), false); } });
+                                            wifiListLayout->addWidget(wifiButton);
+                                        }
+                                        wifiScanInProgress = false;
+                                    });
+                                    scan3->start(pkexecPath, QStringList() << iwPath << "dev" << iface << "scan");
+                                    return;
+                                }
+                                // Reuse same parsing path with out2
+                                QMap<QString, bool> ssidSecured; QString currentSsid; bool currentSecured = false;
+                                const QStringList lines2 = out2.split('\n');
+                                auto flushCurrent2 = [&](){ if (!currentSsid.isEmpty()) { bool prev = ssidSecured.value(currentSsid, false); ssidSecured[currentSsid] = prev || currentSecured; currentSsid.clear(); currentSecured = false; } };
+                                for (QString line : lines2) { line = line.trimmed(); if (line.startsWith("BSS ")) { flushCurrent2(); continue; } if (line.startsWith("SSID:")) { currentSsid = line.mid(5).trimmed(); continue; } if (line.startsWith("RSN:") || line.startsWith("WPA:")) { currentSecured = true; continue; } }
+                                flushCurrent2();
+                                QStringList wifiNetworks; for (auto it = ssidSecured.constBegin(); it != ssidSecured.constEnd(); ++it) { const QString &ssid = it.key(); if (ssid.isEmpty() || ssid == "<hidden>") continue; const bool secured = it.value(); wifiNetworks << (ssid + (secured ? " (Secured)" : " (Open)")); }
+                                if (wifiNetworks.isEmpty()) {
+                                    connectionStatus->setText(QString("No Wi‑Fi networks found on %1").arg(iface));
+                                    connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
+                                    QTimer::singleShot(900, this, [=, this]() { (*scanNext)(idx + 1); });
+                                    return;
+                                }
+                                connectionStatus->setText(QString("Found %1 WiFi networks:").arg(wifiNetworks.size()));
+                                connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
+                                for (const QString &network : wifiNetworks) {
+                                    QPushButton *wifiButton = new QPushButton(network);
+                                    wifiButton->setStyleSheet("QPushButton { background-color: #2A2A2A; color: white; border: 1px solid #444444; border-radius: 5px; padding: 12px; font-size: 14px; text-align: left; }" "QPushButton:hover { background-color: #3A3A3A; }" "QPushButton:pressed { background-color: #1A1A1A; }");
+                                    QString ssid = network; bool secured = false; if (ssid.endsWith(" (Secured)")) { ssid.chop(QString(" (Secured)").size()); secured = true; } else if (ssid.endsWith(" (Open)")) { ssid.chop(QString(" (Open)").size()); }
+                                    wifiButton->setProperty("ssid", ssid); wifiButton->setProperty("secured", secured); wifiButton->setProperty("ifname", iface);
+                                    connect(wifiButton, &QPushButton::clicked, this, [=, this]() { const QString ssidClicked = wifiButton->property("ssid").toString(); const bool needPassword = wifiButton->property("secured").toBool(); const QString ifn = wifiButton->property("ifname").toString(); if (needPassword) { passwordLabel->setText("Enter password for " + ssidClicked + ":"); passwordLabel->setProperty("ssid", ssidClicked); passwordLabel->setProperty("ifname", ifn); passwordContainer->show(); } else { connectionStatus->setText("Connecting to " + ssidClicked + "..."); connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;"); connectWithWpaCli(ifn, ssidClicked, QString(), false); } });
+                                    wifiListLayout->addWidget(wifiButton);
+                                }
+                                wifiScanInProgress = false;
+                            });
+                            scan2->start(iwPath, QStringList() << "dev" << iface << "scan");
+                            return;
+                        }
+                        // Parse `iw <iface> scan` output
+                        QMap<QString, bool> ssidSecured; // ssid -> secured
+                        QString currentSsid;
+                        bool currentSecured = false;
+                        const QStringList lines = out.split('\n');
+                        auto flushCurrent = [&](){
+                            if (!currentSsid.isEmpty()) {
+                                bool prev = ssidSecured.value(currentSsid, false);
+                                ssidSecured[currentSsid] = prev || currentSecured;
+                                currentSsid.clear();
+                                currentSecured = false;
+                            }
+                        };
+                        for (QString line : lines) {
+                            line = line.trimmed();
+                            if (line.startsWith("BSS ")) { flushCurrent(); continue; }
+                            if (line.startsWith("SSID:")) {
+                                currentSsid = line.mid(QString("SSID:").size()).trimmed();
+                                continue;
+                            }
+                            if (line.startsWith("RSN:") || line.startsWith("WPA:")) { currentSecured = true; continue; }
+                        }
+                        flushCurrent();
+
+                        QStringList wifiNetworks;
+                        for (auto it = ssidSecured.constBegin(); it != ssidSecured.constEnd(); ++it) {
+                            const QString &ssid = it.key();
+                            if (ssid.isEmpty() || ssid == "<hidden>") continue;
+                            const bool secured = it.value();
+                            wifiNetworks << (ssid + (secured ? " (Secured)" : " (Open)"));
+                        }
+
+                        if (wifiNetworks.isEmpty()) {
+                            connectionStatus->setText(QString("No Wi‑Fi networks found on %1").arg(iface));
+                            connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
+                            QTimer::singleShot(900, this, [=, this]() { (*scanNext)(idx + 1); });
+                            return;
+                        }
+
                         connectionStatus->setText(QString("Found %1 WiFi networks:").arg(wifiNetworks.size()));
                         connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
-                        
                         for (const QString &network : wifiNetworks) {
                             QPushButton *wifiButton = new QPushButton(network);
                             wifiButton->setStyleSheet(
-                                "QPushButton {"
-                                "    background-color: #2A2A2A;"
-                                "    color: white;"
-                                "    border: 1px solid #444444;"
-                                "    border-radius: 5px;"
-                                "    padding: 12px;"
-                                "    font-size: 14px;"
-                                "    text-align: left;"
-                                "}"
+                                "QPushButton { background-color: #2A2A2A; color: white; border: 1px solid #444444; border-radius: 5px; padding: 12px; font-size: 14px; text-align: left; }"
                                 "QPushButton:hover { background-color: #3A3A3A; }"
                                 "QPushButton:pressed { background-color: #1A1A1A; }"
                             );
-
-                            // Extract SSID and security flag
                             QString ssid = network;
                             bool secured = false;
-                            if (ssid.endsWith(" (Secured)")) {
-                                ssid.chop(QString(" (Secured)").size());
-                                secured = true;
-                            } else if (ssid.endsWith(" (Open)")) {
-                                ssid.chop(QString(" (Open)").size());
-                            }
-
+                            if (ssid.endsWith(" (Secured)")) { ssid.chop(QString(" (Secured)").size()); secured = true; }
+                            else if (ssid.endsWith(" (Open)")) { ssid.chop(QString(" (Open)").size()); }
                             wifiButton->setProperty("ssid", ssid);
                             wifiButton->setProperty("secured", secured);
-                        
-                            connect(wifiButton, &QPushButton::clicked, this, [=]() {
+                            wifiButton->setProperty("ifname", iface);
+
+                            connect(wifiButton, &QPushButton::clicked, this, [=, this]() {
                                 const QString ssidClicked = wifiButton->property("ssid").toString();
                                 const bool needPassword = wifiButton->property("secured").toBool();
+                                const QString ifn = wifiButton->property("ifname").toString();
                                 if (needPassword) {
                                     passwordLabel->setText("Enter password for " + ssidClicked + ":");
                                     passwordLabel->setProperty("ssid", ssidClicked);
+                                    passwordLabel->setProperty("ifname", ifn);
                                     passwordContainer->show();
                                 } else {
                                     connectionStatus->setText("Connecting to " + ssidClicked + "...");
                                     connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
-                                    
-                                    QProcess *connectProcess = new QProcess(this);
-                                    connect(connectProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [=](int exitCode) {
-                                        if (exitCode == 0) {
-                                            connectionStatus->setText("Connected to " + ssidClicked + ". Checking internet...");
-                                            checkInternetConnectivity(connectionStatus, continueButton);
-                                        } else {
-                                            connectionStatus->setText("Failed to connect to " + ssidClicked);
-                                            connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
-                                        }
-                                        connectProcess->deleteLater();
-                                    });
-                                    connectProcess->start("nmcli", QStringList() << "dev" << "wifi" << "connect" << ssidClicked);
+                                    connectWithWpaCli(ifn, ssidClicked, QString(), false);
                                 }
                             });
-                        
                             wifiListLayout->addWidget(wifiButton);
                         }
-                    }
-                });
-                nmcliProcess->start("nmcli", args);
+                        wifiScanInProgress = false;
+                    });
+                    // Bring interface up (ignore result), then scan
+                    QProcess *prep = new QProcess(this);
+                    QObject::connect(prep, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [=, this](int, QProcess::ExitStatus){
+                        prep->deleteLater();
+                        QTimer::singleShot(150, this, [=, this]() {
+                            scanProc->start(sudoPath, QStringList() << "-S" << iwPath << "dev" << iface << "scan");
+                        });
+                    });
+                    // Try rfkill unblock and ip link up in one shell run
+                    QString cmd = QString("sh");
+                    QStringList args; 
+                    args << "-c" 
+                         << QString("%1 -S rfkill unblock wifi 2>/dev/null; %2 -S %3 link set %4 up 2>/dev/null")
+                               .arg(sudoPath, sudoPath, ipPath, iface);
+                    prep->start(cmd, args);
+                };
+                // Start with first interface
+                (*scanNext)(0);
+        };
+        
+        // Function to check internet connection only (no Wi‑Fi UI)
+        std::function<void()> checkInternetConnection;
+        checkInternetConnection = [this, contentStack, connectionStatus, continueButton, checkInternetConnectivity]() mutable {
+            if (contentStack->currentIndex() != 1) return; // Only when Internet page visible
+            // Keep UI minimal: just check HTTP connectivity continuously
+            if (!isCheckingInternet) {
+                checkInternetConnectivity(connectionStatus, continueButton);
             }
-        }; // <<<<<<<<<< IMPORTANT: close the lambda with semicolon
+        }; // minimal internet-only checker
 
         // Connect refresh timer to check internet connection
         connect(refreshTimer, &QTimer::timeout, this, [this, checkInternetConnection]() {
@@ -568,7 +775,7 @@ public:
         });
         
         // Connect password input
-        connect(connectButton, &QPushButton::clicked, this, [=]() {
+        connect(connectButton, &QPushButton::clicked, this, [=, this]() {
             if (!passwordInput->text().isEmpty()) {
                 QString selectedNetwork = passwordLabel->property("ssid").toString();
                 if (selectedNetwork.isEmpty()) {
@@ -578,24 +785,22 @@ public:
                 connectionStatus->setText("Connecting to " + selectedNetwork + "...");
                 connectionStatus->setStyleSheet("color: #FFAA00; font-size: 16px;");
                 
-                QProcess *connectProcess = new QProcess(this);
-                connect(connectProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [=](int exitCode) {
-                    if (exitCode == 0) {
-                        connectionStatus->setText("Connected to " + selectedNetwork + ". Checking internet...");
-                        passwordContainer->hide();
-                        checkInternetConnectivity(connectionStatus, continueButton);
-                    } else {
-                        connectionStatus->setText("Failed to connect to " + selectedNetwork + ". Check password.");
-                        connectionStatus->setStyleSheet("color: #FF6B6B; font-size: 16px;");
+                // Use ifname captured during selection if available
+                QString ifn = passwordLabel->property("ifname").toString();
+                if (ifn.isEmpty()) {
+                    // Try to infer from available Wi‑Fi interfaces
+                    const auto ifaces = QNetworkInterface::allInterfaces();
+                    for (const QNetworkInterface &iface : ifaces) {
+                        if (iface.type() == QNetworkInterface::Wifi) { ifn = iface.name(); break; }
                     }
-                    connectProcess->deleteLater();
-                });
-                connectProcess->start("nmcli", QStringList() << "dev" << "wifi" << "connect" << selectedNetwork << "password" << passwordInput->text());
+                }
+                passwordContainer->hide();
+                connectWithWpaCli(ifn, selectedNetwork, passwordInput->text(), true);
             }
         });
         
         // Connect continue button to enable GitHub page
-        connect(continueButton, &QPushButton::clicked, this, [=]() {
+        connect(continueButton, &QPushButton::clicked, this, [=, this]() {
             menuButtons[2]->setEnabled(true);  // Enable GitHub button
             menuButtons[2]->setChecked(true);  // Select GitHub button
             contentStack->setCurrentIndex(2);  // Navigate to GitHub page
@@ -604,6 +809,23 @@ public:
         // Start connection check after a short delay - but don't auto-start timer yet
         // QTimer::singleShot(1000, checkInternetConnection);
             
+        */
+
+        // Minimal internet-only checker and wiring
+        std::function<void()> checkInternetConnection = [this, contentStack, connectionStatus, continueButton, checkInternetConnectivity]() mutable {
+            if (contentStack->currentIndex() == 1 && !isCheckingInternet) {
+                checkInternetConnectivity(connectionStatus, continueButton);
+            }
+        };
+        connect(refreshTimer, &QTimer::timeout, this, [this, checkInternetConnection]() {
+            checkInternetConnection();
+        });
+        connect(continueButton, &QPushButton::clicked, this, [=, this]() {
+            menuButtons[2]->setEnabled(true);
+            menuButtons[2]->setChecked(true);
+            contentStack->setCurrentIndex(2);
+        });
+
         QWidget *githubPage = new QWidget();
         {
             QVBoxLayout *ghLayout = new QVBoxLayout(githubPage);
@@ -619,10 +841,11 @@ public:
             QLabel *intro = new QLabel(
                 "With NixlyOS, it is a requirement that the entire system is declarative and reproducible. To achieve this, the entire system must be stored in a private github repo that only you have access to.\n\n"
                 "This way, you can reinstall your system at any time or on any other PC and you will get exactly the same result, in fact down to every last detail such as package/driver/program versions.\n\n"
-                "As long as you use NixlyOS, you don't have to do anything with this yourself, as long as you follow the steps below."
+                "To ensure that no secrets are stored in your GitHub repo, we do not commit any encrypted secrets; instead, passwords and your GitHub token are configured after your first login.\n\n"
+                "Follow the steps below:"
             );
             intro->setWordWrap(true);
-            intro->setAlignment(Qt::AlignCenter);
+            intro->setAlignment(Qt::AlignLeft | Qt::AlignTop);
             intro->setStyleSheet("color: #cccccc; font-size: 15px; line-height: 1.5;");
             ghLayout->addWidget(intro);
             ghLayout->addSpacing(24); // Extra space between intro text and Step 1
@@ -634,10 +857,10 @@ public:
             step1Layout->setContentsMargins(16, 16, 16, 16);
             step1Layout->setSpacing(10);
 
-            QLabel *step1 = new QLabel("If you don't already have a GitHub account, you'll need to create one first. If you already have an account, you can skip to step 2.");
+            QLabel *step1 = new QLabel("You can skip this step if you already have a GitHub account. If not, create one.");
             step1->setStyleSheet("color: #cccccc; font-size: 15px; line-height: 1.5;");
             step1->setWordWrap(true);
-            step1->setAlignment(Qt::AlignCenter);
+            step1->setAlignment(Qt::AlignLeft | Qt::AlignTop);
             step1Layout->addWidget(step1);
 
             QHBoxLayout *step1Actions = new QHBoxLayout();
@@ -661,6 +884,7 @@ public:
             step1Row->addSpacing(10);
             step1Row->addWidget(step1Card, 1);
             ghLayout->addLayout(step1Row);
+            ghLayout->addSpacing(24);
 
             // Step 2 card
             QWidget *step2Card = new QWidget();
@@ -669,29 +893,26 @@ public:
             step2Layout->setContentsMargins(16, 16, 16, 16);
             step2Layout->setSpacing(10);
 
-            QLabel *step2 = new QLabel("We now need to go through a Device Activation so that NixlyInstall gets temporary access to create a private repository for storing your entire NixlyOS system. When you click ‘Github Login’, we will display your one-time code, copy it to your clipboard, and automatically open the activation page in your browser.");
+            QLabel *step2 = new QLabel("We now need to go through a Device Activation so that NixlyInstall gets temporary access to view/create your private repository for storing your entire NixlyOS system. When you click ‘Github activation’, we will display your one-time code, copy it to your clipboard, and automatically open the activation page in your browser.");
             step2->setStyleSheet("color: #cccccc; font-size: 15px; line-height: 1.5; margin-top: 2px;");
             step2->setWordWrap(true);
-            step2->setAlignment(Qt::AlignCenter);
+            step2->setAlignment(Qt::AlignLeft | Qt::AlignTop);
             step2Layout->addWidget(step2);
 
-            // Status row with small spinner
+            // Status spinner (shown during login)
             QLabel *status = new QLabel("Klar til å logge inn med GitHub CLI.");
             status->setStyleSheet("color: #cccccc; font-size: 14px;");
             status->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
             QLabel *spinnerLbl = new QLabel("");
-            spinnerLbl->setFixedWidth(16);
-            spinnerLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            // Make it white, 5x larger, and without any ring/border
+            spinnerLbl->setStyleSheet("color: white; font-size: 80px; border: none; background: transparent;");
+            spinnerLbl->setFrameStyle(QFrame::NoFrame);
+            spinnerLbl->setFocusPolicy(Qt::NoFocus);
+            spinnerLbl->setFixedWidth(80);
+            spinnerLbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
             spinnerLbl->hide();
-
-            QHBoxLayout *statusRow = new QHBoxLayout();
-            statusRow->addStretch();
-            statusRow->addWidget(spinnerLbl);
-            statusRow->addSpacing(8);
-            statusRow->addWidget(status);
-            statusRow->addStretch();
-            // Per new UX, do not add statusRow to the UI
+            // Note: spinner is added next to the Avbryt button in the actions row
 
             // Show the exact one-time code sentence when captured
             QLabel *oneTimeMsg = new QLabel("");
@@ -740,7 +961,7 @@ public:
                 "QPushButton { background-color: #2A2A2A; color: white; border: 1px solid #444444; border-radius: 5px; padding: 10px 16px; font-weight: bold; }"
                 "QPushButton:hover { background-color: #3A3A3A; }"
             );
-            QPushButton *ghLoginBtn = new QPushButton("Github Login");
+            QPushButton *ghLoginBtn = new QPushButton("Github Activation");
             ghLoginBtn->setStyleSheet(
                 "QPushButton { background-color: #0078D4; color: white; border: none; border-radius: 8px; padding: 12px 24px; font-size: 16px; font-weight: bold; }"
                 "QPushButton:hover { background-color: #106EBE; }"
@@ -764,6 +985,8 @@ public:
             actions->addWidget(activationOkLabel);
             actions->addSpacing(12);
             actions->addWidget(ghCancelBtn);
+            actions->addSpacing(8);
+            actions->addWidget(spinnerLbl);
             actions->addStretch();
             step2Layout->addLayout(actions);
 
@@ -833,11 +1056,6 @@ public:
             step2Layout->addWidget(tokenContainer);
             tokenContainer->hide();
 
-            // Hint about gh CLI
-            QLabel *hint = new QLabel("Requires ‘gh’ (GitHub CLI) in PATH.");
-            hint->setStyleSheet("color: #777777; font-size: 12px;");
-            hint->setAlignment(Qt::AlignCenter);
-            step2Layout->addWidget(hint);
 
             // Row with numeric badge
             QHBoxLayout *step2Row = new QHBoxLayout();
@@ -849,6 +1067,7 @@ public:
             step2Row->addSpacing(10);
             step2Row->addWidget(step2Card, 1);
             ghLayout->addLayout(step2Row);
+            ghLayout->addSpacing(24);
 
             // Step 3 card (guidance to continue)
             QWidget *step3Card = new QWidget();
@@ -859,7 +1078,7 @@ public:
             QLabel *step3 = new QLabel("After completing activation, continue to Select Drive to choose the installation target for NixlyOS.");
             step3->setStyleSheet("color: #cccccc; font-size: 15px; line-height: 1.5;");
             step3->setWordWrap(true);
-            step3->setAlignment(Qt::AlignCenter);
+            step3->setAlignment(Qt::AlignLeft | Qt::AlignTop);
             step3Layout->addWidget(step3);
             QHBoxLayout *step3Actions = new QHBoxLayout();
             QPushButton *continueToDriveBtn = new QPushButton("Continue to Select Drive");
@@ -883,7 +1102,7 @@ public:
             ghLayout->addLayout(step3Row);
 
             // Navigation to drive page
-            connect(continueToDriveBtn, &QPushButton::clicked, this, [=]() {
+            connect(continueToDriveBtn, &QPushButton::clicked, this, [=, this]() {
                 if (menuButtons.size() > 3) {
                     menuButtons[3]->setEnabled(true);
                     menuButtons[3]->setChecked(true);
@@ -892,7 +1111,7 @@ public:
             });
 
             // Open signup page
-            connect(createAccountBtn, &QPushButton::clicked, this, [=]() {
+            connect(createAccountBtn, &QPushButton::clicked, this, [=, this]() {
                 QDesktopServices::openUrl(QUrl("https://github.com/signup"));
             });
 
@@ -925,13 +1144,13 @@ public:
 
             // Spinner frames (braille animation)
             QStringList spinnerFrames = { "⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏" };
-            QObject::connect(ghState->spin, &QTimer::timeout, this, [=]() mutable {
+            QObject::connect(ghState->spin, &QTimer::timeout, this, [=, this]() mutable {
                 ghState->spinnerIndex = (ghState->spinnerIndex + 1) % spinnerFrames.size();
                 spinnerLbl->setText(spinnerFrames[ghState->spinnerIndex]);
             });
 
             // Generate device code without CLI using GitHub OAuth device flow
-            connect(genCodeBtn, &QPushButton::clicked, this, [=]() mutable {
+            connect(genCodeBtn, &QPushButton::clicked, this, [=, this]() mutable {
                 QString clientId = clientIdEdit->text().trimmed();
                 if (clientId.isEmpty()) {
                     status->setText("Oppgi en GitHub OAuth Client ID.");
@@ -953,7 +1172,7 @@ public:
                 QByteArray body = form.toString(QUrl::FullyEncoded).toUtf8();
 
                 QNetworkReply *rep = netManager->post(req, body);
-                connect(rep, &QNetworkReply::finished, this, [=]() mutable {
+                connect(rep, &QNetworkReply::finished, this, [=, this]() mutable {
                     if (ghState->spin->isActive()) ghState->spin->stop();
                     spinnerLbl->hide();
                     QByteArray data = rep->readAll();
@@ -982,7 +1201,7 @@ public:
                     if (!verification_uri.isEmpty()) {
                         openDevicePageBtn->setText("Åpne " + verification_uri);
                         openDevicePageBtn->disconnect();
-                        connect(openDevicePageBtn, &QPushButton::clicked, this, [=]() {
+                        connect(openDevicePageBtn, &QPushButton::clicked, this, [=, this]() {
                             if (!deviceCodeEdit->text().isEmpty()) {
                                 QGuiApplication::clipboard()->setText(deviceCodeEdit->text());
                                 deviceCodeEdit->setFocus();
@@ -1012,7 +1231,7 @@ public:
             });
 
             // Copy code
-            connect(copyCodeBtn, &QPushButton::clicked, this, [=]() {
+            connect(copyCodeBtn, &QPushButton::clicked, this, [=, this]() {
                 if (!deviceCodeEdit->text().isEmpty()) {
                     QClipboard *cb = QGuiApplication::clipboard();
                     cb->setText(deviceCodeEdit->text());
@@ -1022,7 +1241,7 @@ public:
             });
 
             // Open browser to device page; ensure code is visible/copied
-            connect(openDevicePageBtn, &QPushButton::clicked, this, [=]() {
+            connect(openDevicePageBtn, &QPushButton::clicked, this, [=, this]() {
                 if (!deviceCodeEdit->text().isEmpty()) {
                     QGuiApplication::clipboard()->setText(deviceCodeEdit->text());
                     deviceCodeEdit->setFocus();
@@ -1037,7 +1256,7 @@ public:
             });
 
             // Device flow token polling
-            QObject::connect(ghState->devicePoll, &QTimer::timeout, this, [=]() mutable {
+            QObject::connect(ghState->devicePoll, &QTimer::timeout, this, [=, this]() mutable {
                 if (!ghState->deviceInProgress) return;
                 QUrl url("https://github.com/login/oauth/access_token");
                 QNetworkRequest req(url);
@@ -1049,7 +1268,7 @@ public:
                 form.addQueryItem("grant_type", "urn:ietf:params:oauth:grant-type:device_code");
                 QByteArray body = form.toString(QUrl::FullyEncoded).toUtf8();
                 QNetworkReply *rep = netManager->post(req, body);
-                QObject::connect(rep, &QNetworkReply::finished, this, [=]() mutable {
+                QObject::connect(rep, &QNetworkReply::finished, this, [=, this]() mutable {
                     QByteArray data = rep->readAll();
                     rep->deleteLater();
                     QJsonParseError jerr; QJsonDocument jd = QJsonDocument::fromJson(data, &jerr);
@@ -1089,7 +1308,7 @@ public:
             });
 
             // Copy token manually
-            connect(copyTokenBtn, &QPushButton::clicked, this, [=]() {
+            connect(copyTokenBtn, &QPushButton::clicked, this, [=, this]() {
                 if (!tokenEdit->text().isEmpty()) {
                     QGuiApplication::clipboard()->setText(tokenEdit->text());
                     status->setText("Token kopiert til utklippstavlen.");
@@ -1098,7 +1317,7 @@ public:
             });
 
             // Cancel ongoing login or device flow
-            connect(ghCancelBtn, &QPushButton::clicked, this, [=]() mutable {
+            connect(ghCancelBtn, &QPushButton::clicked, this, [=, this]() mutable {
                 bool didCancel = false;
                 if (ghState->inProgress) {
                     ghState->cancelled = true;
@@ -1126,12 +1345,12 @@ public:
             });
 
             // Poll gh auth status while login is in progress (do not update UI)
-            QObject::connect(ghState->poll, &QTimer::timeout, this, [=]() mutable {
+            QObject::connect(ghState->poll, &QTimer::timeout, this, [=, this]() mutable {
                 if (!ghState->inProgress || ghState->statusCheckRunning) return;
                 ghState->statusCheckRunning = true;
                 QProcess *chk = new QProcess(githubPage);
                 QObject::connect(chk, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-                                 [=](int exitCode, QProcess::ExitStatus) mutable {
+                                 [=, this](int exitCode, QProcess::ExitStatus) mutable {
                     if (!ghState->inProgress) { chk->deleteLater(); ghState->statusCheckRunning = false; return; }
                     // Do not show success here; wait for the login process to finish
                     ghState->statusCheckRunning = false;
@@ -1141,7 +1360,7 @@ public:
             });
 
             // Trigger gh auth login (device flow) and capture device code
-            connect(ghLoginBtn, &QPushButton::clicked, this, [=]() mutable {
+            connect(ghLoginBtn, &QPushButton::clicked, this, [=, this]() mutable {
                 if (ghState->inProgress) return;
                 // No status text per new UX
                 ghState->cancelled = false;
@@ -1171,7 +1390,7 @@ public:
                 ghState->proc = proc;
 
                 // Capture and parse output for the one-time code (e.g. XXXX-XXXX)
-                auto parseOutput = [=]() mutable {
+                auto parseOutput = [=, this]() mutable {
                     if (!proc) return;
                     QString combined = QString::fromUtf8(proc->readAll());
 
@@ -1225,13 +1444,13 @@ public:
                 QObject::connect(proc, &QProcess::readyRead, this, parseOutput);
 
                 // Some prompts may wait for Enter; send a newline after start
-                QObject::connect(proc, &QProcess::started, this, [=]() mutable {
+                QObject::connect(proc, &QProcess::started, this, [=, this]() mutable {
                     proc->write("\n");
-                    QTimer::singleShot(400, githubPage, [=]() mutable { if (proc) proc->write("\n"); });
+                    QTimer::singleShot(400, githubPage, [=, this]() mutable { if (proc) proc->write("\n"); });
                 });
 
                 QObject::connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-                                 [=](int exitCode, QProcess::ExitStatus es) {
+                                 [=, this](int exitCode, QProcess::ExitStatus es) {
                     if (exitCode == 0 && es == QProcess::NormalExit) {
                         // Treat as success only when the login process finishes
                         ghState->inProgress = false;
@@ -1260,7 +1479,7 @@ public:
                 // Pre-check: ensure gh exists
                 QProcess *check = new QProcess(this);
                 QObject::connect(check, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-                                 [=](int code, QProcess::ExitStatus) mutable {
+                                 [=, this](int code, QProcess::ExitStatus) mutable {
                     check->deleteLater();
                     if (code != 0) {
                         // No status text per new UX
@@ -1309,12 +1528,12 @@ public:
         }
         
         // Connect "Let's start" button to enable Internet Connection and navigate to it
-        connect(letsStartButton, &QPushButton::clicked, this, [=]() {
+        connect(letsStartButton, &QPushButton::clicked, this, [=, this]() {
             menuButtons[1]->setEnabled(true);  // Enable Internet Connection button
             menuButtons[1]->setChecked(true);  // Select Internet Connection button
             contentStack->setCurrentIndex(1);  // Navigate to Internet Connection page
             // Kick off the first check immediately on entering the page
-            QTimer::singleShot(200, this, [=]() {
+            QTimer::singleShot(200, this, [=, this]() {
                 if (refreshTimer && !refreshTimer->isActive()) {
                     refreshTimer->start(); // Start auto-refresh
                 }
@@ -1323,22 +1542,20 @@ public:
         
         // Connect menu button selection to content stack
         connect(menuButtonGroup, &QButtonGroup::buttonClicked, this,
-                [=](QAbstractButton* button) {
+                [=, this](QAbstractButton* button) {
                     int index = menuButtonGroup->id(button);
                     contentStack->setCurrentIndex(index);
                     
                     // Start auto-refresh when Internet Connection page is shown
                     if (index == 1) { // Internet Connection page
                         if (!refreshTimer->isActive()) {
-                            QTimer::singleShot(500, this, [=]() {
+                            QTimer::singleShot(500, this, [=, this]() {
                                 refreshTimer->start();
                             });
                         }
                     } else {
                         refreshTimer->stop(); // Stop refresh on other pages
-                        // Reset states when leaving internet page
-                        lastEthernetState = false;
-                        lastInternetState = false;
+                        // Reset state when leaving internet page
                         isCheckingInternet = false;
                     }
                 });

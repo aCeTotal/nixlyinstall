@@ -32,6 +32,8 @@
             pkgs.libglvnd
             pkgs.gh
             pkgs.git
+            pkgs.wpa_supplicant
+            pkgs.iw
           ];
           shellHook = ''
             export QT_QPA_PLATFORM=wayland

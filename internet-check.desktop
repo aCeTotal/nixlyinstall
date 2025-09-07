@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Internet Connection
+Comment=Check if the system has internet access
+Exec=/home/total/nixlyinstall/internet_check_kde.sh
+Icon=network-wireless
+Terminal=false
+Categories=System;Network;
+StartupNotify=false
+
