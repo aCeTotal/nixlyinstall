@@ -197,7 +197,7 @@ public:
 
         // Strong security/stability note (bold) under the description
         QLabel *welcomeSecurityNote = new QLabel(
-            "<b>Before we begin, we want to be crystal clear: NixlyOS uses every method available to make your system and computer as secure and stable as possible — including strict control of open ports and full encryption of all partitions. If this is not acceptable, you should not start the installation of NixlyOS.</b>");
+            "<b>Before we begin, we want to be crystal clear: NixlyOS uses every method available to make your system and computer as secure and stable as possible — including Secure Boot, strict control of open ports, strict control of incoming traffic, isolation of every package, limited access to change/edit files, limited information shared through the browser and full encryption of all partitions. If this is not acceptable, you should not start the installation of NixlyOS.</b>");
         welcomeSecurityNote->setTextFormat(Qt::RichText);
         welcomeSecurityNote->setWordWrap(true);
         welcomeSecurityNote->setStyleSheet("color: #e6e6e6; font-size: 16px; line-height: 1.5; font-weight: bold;");
