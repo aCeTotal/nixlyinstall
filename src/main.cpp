@@ -26,6 +26,12 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QUrlQuery>
+#include <QDir>
+#include <QScrollArea>
+#include <QRadioButton>
+#include <QToolTip>
+#include <QScrollArea>
+#include <QRadioButton>
 #include <functional>
 #include <memory>
 
@@ -35,6 +41,12 @@ private:
     bool isCheckingInternet = false;
     QTimer *refreshTimer = nullptr;
     QNetworkAccessManager *netManager = nullptr;
+    QWidget *hoverTip = nullptr;
+    QLabel *hoverTipLabel = nullptr;
+    QFrame *currentDriveCard = nullptr;
+    QString currentDrivePath;
+    QLabel *driveSelectedHint = nullptr;
+    QPushButton *installButton = nullptr;
 
 public:
     MainWindow(QWidget *parent = nullptr) : QMainWindow(parent)
@@ -119,6 +131,7 @@ public:
             menuButtonGroup->addButton(button, i);
             topLayout->addWidget(button);
         }
+        if (menuButtons.size() > 5) installButton = menuButtons[5];
         
         QWidget *contentPanel = new QWidget();
         contentPanel->setAutoFillBackground(true);
@@ -826,6 +839,10 @@ public:
             contentStack->setCurrentIndex(2);
         });
 
+        // Track repo clone state and provide a reusable clone helper across handlers
+        auto repoCloneStarted = std::make_shared<bool>(false);
+        std::function<void(const QString&, const QString&)> doClone;
+
         QWidget *githubPage = new QWidget();
         {
             QVBoxLayout *ghLayout = new QVBoxLayout(githubPage);
@@ -1069,23 +1086,35 @@ public:
             ghLayout->addLayout(step2Row);
             ghLayout->addSpacing(24);
 
-            // Step 3 card (guidance to continue)
+            // Step 3 card: Check repo, list branches, and New system
             QWidget *step3Card = new QWidget();
             step3Card->setStyleSheet("QWidget { background-color: #232323; border: 1px solid #3A3A3A; border-radius: 8px; }");
             QVBoxLayout *step3Layout = new QVBoxLayout(step3Card);
             step3Layout->setContentsMargins(16, 16, 16, 16);
             step3Layout->setSpacing(10);
-            QLabel *step3 = new QLabel("After completing activation, continue to Select Drive to choose the installation target for NixlyOS.");
-            step3->setStyleSheet("color: #cccccc; font-size: 15px; line-height: 1.5;");
-            step3->setWordWrap(true);
-            step3->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-            step3Layout->addWidget(step3);
+
+            // Remove verbose description above the buttons per new UX
+
+            QLabel *repoStatus3 = new QLabel("Waiting for access to Github");
+            repoStatus3->setStyleSheet("color: #cccccc; font-size: 14px;");
+            step3Layout->addWidget(repoStatus3);
+
+            // Branch list container
+            QWidget *branchListWidget = new QWidget();
+            QVBoxLayout *branchListLayout = new QVBoxLayout(branchListWidget);
+            branchListLayout->setContentsMargins(0, 0, 0, 0);
+            branchListLayout->setSpacing(6);
+            step3Layout->addWidget(branchListWidget);
+
+            // Actions row: Continue only (New system removed per new UX)
             QHBoxLayout *step3Actions = new QHBoxLayout();
+
             QPushButton *continueToDriveBtn = new QPushButton("Continue to Select Drive");
             continueToDriveBtn->setStyleSheet(
                 "QPushButton { background-color: #0078D4; color: white; border: none; border-radius: 8px; padding: 10px 18px; font-weight: bold; }"
                 "QPushButton:hover { background-color: #106EBE; }"
             );
+
             step3Actions->addStretch();
             step3Actions->addWidget(continueToDriveBtn);
             step3Actions->addStretch();
@@ -1101,8 +1130,155 @@ public:
             step3Row->addWidget(step3Card, 1);
             ghLayout->addLayout(step3Row);
 
+            // Helper: clear branch buttons
+            auto clearBranchButtons = [branchListLayout]() {
+                QLayoutItem *child;
+                while ((child = branchListLayout->takeAt(0)) != nullptr) {
+                    if (child->widget()) {
+                        child->widget()->setParent(nullptr);
+                        child->widget()->deleteLater();
+                    }
+                    delete child;
+                }
+            };
+
+            // Clone helper will reference this state via repoCloneStarted
+            // Helper: clone into ~/.nixlyos
+            doClone = [=, this](const QString &repoUrl, const QString &branch) {
+                const QString targetPath = QDir::homePath() + "/.nixlyos";
+                // No UI messages here; keep Step 3 text stable
+
+                QProcess *cl = new QProcess(this);
+                QObject::connect(cl, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                                 [=, this](int exitCode, QProcess::ExitStatus) mutable {
+                    const QString out = QString::fromUtf8(cl->readAllStandardOutput());
+                    const QString err = QString::fromUtf8(cl->readAllStandardError());
+                    cl->deleteLater();
+                    if (exitCode != 0) {
+                        const QString combined = out + "\n" + err;
+                        const QString lc = combined.toLower();
+                        // Suppress error message if destination exists already
+                        if (lc.contains("destination path") && lc.contains("already exists")) {
+                            return;
+                        }
+                        if (lc.contains("already exists and is not an empty directory") || lc.contains("not an empty directory")) {
+                            return;
+                        }
+                    }
+                });
+
+                QStringList args;
+                args << "clone";
+                if (!branch.isEmpty()) args << "--branch" << branch << "--single-branch";
+                args << repoUrl << (QDir::homePath() + "/.nixlyos");
+                *repoCloneStarted = true;
+                cl->start("git", args);
+            };
+
+            // Helper: list branches for <login>/nixlyos
+            auto listBranches = [=, this](const QString &login) {
+                clearBranchButtons();
+                // Keep UI minimal: only show final messages as specified
+                QProcess *bp = new QProcess(this);
+                QObject::connect(bp, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                                 [=, this, login](int exitCode, QProcess::ExitStatus) mutable {
+                    const QString out = QString::fromUtf8(bp->readAllStandardOutput());
+                    const QString err = QString::fromUtf8(bp->readAllStandardError());
+                    bp->deleteLater();
+                    if (exitCode != 0) {
+                        // Repo missing or inaccessible
+                        repoStatus3->setText("No existing system configurations were found. Please proceed to \"Select drive\" to start a new configuration.");
+                        repoStatus3->setStyleSheet("color: #cccccc; font-size: 14px;");
+                        return;
+                    }
+                    QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+                    if (lines.isEmpty()) {
+                        repoStatus3->setText("No existing system configurations were found. Please proceed to \"Select drive\" to start a new configuration.");
+                        repoStatus3->setStyleSheet("color: #cccccc; font-size: 14px;");
+                        return;
+                    }
+
+                    repoStatus3->setText("Please select an existing system configuration or simply press \"Select drive\" to start a new configuration.");
+                    repoStatus3->setStyleSheet("color: #cccccc; font-size: 14px;");
+                    for (const QString &b : lines) {
+                        QString branch = b.trimmed();
+                        if (branch.isEmpty()) continue;
+                        QPushButton *btn = new QPushButton(branch);
+                        btn->setStyleSheet(
+                            "QPushButton { background-color: #2A2A2A; color: white; border: 1px solid #444444; border-radius: 5px; padding: 10px; text-align: left; }"
+                            "QPushButton:hover { background-color: #3A3A3A; }"
+                        );
+                        branchListLayout->addWidget(btn);
+                        QObject::connect(btn, &QPushButton::clicked, this, [=, this, login, branch]() mutable {
+                            const QString url = QString("https://github.com/%1/nixlyos.git").arg(login);
+                            doClone(url, branch);
+                        });
+                    }
+                });
+                // Use gh CLI to query branches
+                QStringList args;
+                args << "api" << QString("repos/%1/nixlyos/branches").arg(login) << "-q" << ".[].name";
+                bp->start("gh", args);
+            };
+
+            // Helper: ensure repo exists for <login>/nixlyos
+            auto ensureRepoExists = [=, this](const QString &login, std::function<void()> cont) {
+                // Check if repo exists
+                QProcess *vp = new QProcess(this);
+                QObject::connect(vp, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                                 [=, this, login, cont](int exitCode, QProcess::ExitStatus) mutable {
+                    vp->deleteLater();
+                    if (exitCode == 0) {
+                        cont();
+                        return;
+                    }
+                    // Create the repo if missing (private, no README to avoid creating a branch)
+                    QProcess *cp = new QProcess(this);
+                    QObject::connect(cp, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                                     [=, this, cont](int createExit, QProcess::ExitStatus) mutable {
+                        cp->deleteLater();
+                        // Regardless of success, proceed to listing branches; UI will show minimal text
+                        cont();
+                    });
+                    QStringList cargs;
+                    cargs << "repo" << "create" << (login + "/nixlyos") << "--private" << "--confirm" << "--disable-issues" << "--disable-wiki";
+                    cp->start("gh", cargs);
+                });
+                QStringList vargs;
+                vargs << "repo" << "view" << (login + "/nixlyos");
+                vp->start("gh", vargs);
+            };
+
+            // Helper: check auth + resolve login, then branches
+            auto checkRepo = [=, this]() {
+                // Get the authenticated login
+                QProcess *lp = new QProcess(this);
+                QObject::connect(lp, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                                 [=, this](int exitCode, QProcess::ExitStatus) mutable {
+                    const QString out = QString::fromUtf8(lp->readAllStandardOutput()).trimmed();
+                    const QString err = QString::fromUtf8(lp->readAllStandardError());
+                    lp->deleteLater();
+                    if (exitCode != 0 || out.isEmpty()) {
+                        repoStatus3->setText("Waiting for access to Github");
+                        repoStatus3->setStyleSheet("color: #cccccc; font-size: 14px;");
+                        return;
+                    }
+                    ensureRepoExists(out, [=]() { listBranches(out); });
+                });
+                // Do not show intermediate status
+                lp->start("gh", QStringList() << "api" << "user" << "-q" << ".login");
+            };
+
+            // Auto-trigger check when activation succeeded or when visiting GitHub page
+            // On activation success (from gh device flow above), activationOkLabel is shown; we can also allow manual retry via New system
+            QTimer::singleShot(600, githubPage, [=]() { checkRepo(); });
+
             // Navigation to drive page
             connect(continueToDriveBtn, &QPushButton::clicked, this, [=, this]() {
+                if (!*repoCloneStarted) {
+                    const QString defaultRepo = "https://github.com/aCeTotal/nixlyos_master.git";
+                    doClone(defaultRepo, QString());
+                }
                 if (menuButtons.size() > 3) {
                     menuButtons[3]->setEnabled(true);
                     menuButtons[3]->setChecked(true);
@@ -1289,6 +1465,8 @@ public:
                         oneTimeMsg->hide();
                         activationOkLabel->show();
                         if (menuButtons.size() > 3) menuButtons[3]->setEnabled(true);
+                        // Now that access is granted, update Step 3 content
+                        QTimer::singleShot(200, githubPage, [=]() { checkRepo(); });
                     } else if (!error.isEmpty()) {
                         if (error == "authorization_pending") {
                             // No status text per new UX
@@ -1463,6 +1641,8 @@ public:
                         if (ghState->proc) { ghState->proc->deleteLater(); ghState->proc = nullptr; }
                         activationOkLabel->show();
                         if (menuButtons.size() > 3) menuButtons[3]->setEnabled(true);
+                        // Now that access is granted, update Step 3 content
+                        QTimer::singleShot(200, githubPage, [=]() { checkRepo(); });
                     } else if (!ghState->cancelled) {
                         QString errOut = QString::fromUtf8(proc->readAllStandardError());
                         if (errOut.trimmed().isEmpty()) errOut = QString::fromUtf8(proc->readAllStandardOutput());
@@ -1497,9 +1677,243 @@ public:
             });
         }
             
-        QWidget *drivePage = createPage("Select Drive", 
-            "Choose the drive where NixlyOS will be installed. WARNING: All data on the "
-            "selected drive will be erased during installation.");
+        QWidget *drivePage = new QWidget();
+        {
+            QVBoxLayout *driveLayout = new QVBoxLayout(drivePage);
+            driveLayout->setContentsMargins(40, 40, 40, 40);
+            driveLayout->setSpacing(16);
+
+            QLabel *title = new QLabel("Select Drive");
+            title->setStyleSheet("color: white; font-size: 28px; font-weight: bold;");
+            title->setAlignment(Qt::AlignCenter);
+            driveLayout->addWidget(title);
+
+            QLabel *desc = new QLabel(
+                "Choose the drive where NixlyOS will be installed. WARNING: All data on the selected drive will be erased during installation.");
+            desc->setStyleSheet("color: #cccccc; font-size: 15px; line-height: 1.5;");
+            desc->setWordWrap(true);
+            desc->setAlignment(Qt::AlignCenter);
+            driveLayout->addWidget(desc);
+            // Position the drive list 50px below description
+            driveLayout->addSpacing(12);
+
+            QLabel *driveStatus = new QLabel("");
+            driveStatus->setStyleSheet("color: #cccccc; font-size: 14px;");
+            driveStatus->setAlignment(Qt::AlignCenter);
+            driveLayout->addWidget(driveStatus);
+
+            // Scrollable list of drives
+            QScrollArea *scroll = new QScrollArea();
+            scroll->setWidgetResizable(true);
+            scroll->setFrameShape(QFrame::NoFrame);
+            QWidget *listWrap = new QWidget();
+            QVBoxLayout *driveListLayout = new QVBoxLayout(listWrap);
+            driveListLayout->setContentsMargins(0, 0, 0, 0);
+            driveListLayout->setSpacing(0);
+            driveListLayout->setAlignment(Qt::AlignTop);
+            scroll->setWidget(listWrap);
+            driveLayout->addWidget(scroll, 1);
+
+            // Selection hint
+            QLabel *selectedHint = new QLabel("");
+            selectedHint->setStyleSheet("color: #e6e6e6; font-size: 14px; font-weight: bold;");
+            selectedHint->setAlignment(Qt::AlignCenter);
+            driveLayout->addWidget(selectedHint);
+            driveSelectedHint = selectedHint;
+
+            auto humanSize = [](qulonglong bytes) -> QString {
+                const double kb = 1024.0;
+                const double mb = kb * 1024.0;
+                const double gb = mb * 1024.0;
+                const double tb = gb * 1024.0;
+                if (bytes >= (qulonglong)tb) return QString::number(bytes / tb, 'f', 2) + " TB";
+                if (bytes >= (qulonglong)gb) return QString::number(bytes / gb, 'f', 2) + " GB";
+                if (bytes >= (qulonglong)mb) return QString::number(bytes / mb, 'f', 2) + " MB";
+                if (bytes >= (qulonglong)kb) return QString::number(bytes / kb, 'f', 2) + " KB";
+                return QString::number(bytes) + " B";
+            };
+
+            auto ifaceLabel = [](const QString &tran, const QString &name) -> QString {
+                QString t = tran.trimmed().toLower();
+                if (t == "sata" || t == "ata") return "SATA";
+                if (t == "nvme") return "NVMe";
+                if (t == "usb") return "USB";
+                if (t == "mmc") return "MMC";
+                if (t == "virtio") return "Virtio";
+                if (name.startsWith("nvme")) return "NVMe";
+                return t.isEmpty() ? "" : t.toUpper();
+            };
+
+            auto styleCard = [](QFrame *card, bool checked) {
+                if (!card) return;
+                if (checked) {
+                    card->setStyleSheet("QFrame { background-color: #2a3f5a; border: none; border-bottom: 1px solid #3A3A3A; }");
+                } else {
+                    card->setStyleSheet("QFrame { background-color: transparent; border: none; border-bottom: 1px solid #3A3A3A; } QFrame:hover { background-color: #2A2A2A; }");
+                }
+            };
+
+            // Clear & repopulate drive list
+            std::function<void()> refreshDrives = [=, this]() {
+                // Reset previous selection pointer to avoid dangling references
+                currentDriveCard = nullptr;
+                currentDrivePath.clear();
+                if (driveSelectedHint) driveSelectedHint->clear();
+                if (hoverTip) hoverTip->hide();
+                // Clear existing widgets
+                QLayoutItem *child;
+                while ((child = driveListLayout->takeAt(0)) != nullptr) {
+                    if (child->widget()) { child->widget()->setParent(nullptr); child->widget()->deleteLater(); }
+                    delete child;
+                }
+
+                driveStatus->setText("Scanning for drives...");
+                driveStatus->setStyleSheet("color: #cccccc; font-size: 14px;");
+
+                QProcess *proc = new QProcess(drivePage);
+                QObject::connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), drivePage,
+                                 [=, this](int exitCode, QProcess::ExitStatus) mutable {
+                    QByteArray out = proc->readAllStandardOutput();
+                    proc->deleteLater();
+                    if (exitCode != 0) {
+                        driveStatus->setText("Could not list drives.");
+                        driveStatus->setStyleSheet("color: #FF6B6B; font-size: 14px;");
+                        return;
+                    }
+                    QJsonParseError jerr; QJsonDocument jd = QJsonDocument::fromJson(out, &jerr);
+                    if (jerr.error != QJsonParseError::NoError || !jd.isObject()) {
+                        driveStatus->setText("Could not parse drive information.");
+                        driveStatus->setStyleSheet("color: #FF6B6B; font-size: 14px;");
+                        return;
+                    }
+                    QJsonArray devs = jd.object().value("blockdevices").toArray();
+                    int count = 0;
+                    for (const QJsonValue &v : devs) {
+                        QJsonObject o = v.toObject();
+                        QString type = o.value("type").toString();
+                        if (type != "disk") continue;
+                        QString path = o.value("path").toString();
+                        if (path.isEmpty()) {
+                            QString name = o.value("name").toString();
+                            if (!name.isEmpty()) path = "/dev/" + name;
+                        }
+                        QString model = o.value("model").toString().trimmed();
+                        QString vendor = o.value("vendor").toString().trimmed();
+                        QString tran = o.value("tran").toString().trimmed();
+                        qulonglong size = o.value("size").toVariant().toULongLong();
+                        QString iface = ifaceLabel(tran, o.value("name").toString());
+                        // Compose vendor + model nicely
+                        QString nameCombo;
+                        if (!vendor.isEmpty()) {
+                            nameCombo = vendor;
+                            if (!model.isEmpty()) {
+                                if (!model.startsWith(vendor)) nameCombo += " " + model;
+                            }
+                        } else {
+                            nameCombo = model;
+                        }
+                        if (nameCombo.trimmed().isEmpty()) nameCombo = "Unknown";
+
+                        // Build tooltip of existing partitions for this disk
+                        QString tooltip;
+                        QStringList partLines;
+                        for (const QJsonValue &pv : o.value("children").toArray()) {
+                            QJsonObject po = pv.toObject();
+                            if (po.value("type").toString() != "part") continue;
+                            QString ppath = po.value("path").toString();
+                            if (ppath.isEmpty()) {
+                                QString pname = po.value("name").toString();
+                                if (!pname.isEmpty()) ppath = "/dev/" + pname;
+                            }
+                            qulonglong psize = po.value("size").toVariant().toULongLong();
+                            QString fstype = po.value("fstype").toString();
+                            QString label = po.value("label").toString();
+                            QString uuid = po.value("uuid").toString();
+                            // mountpoints may be an array; fallback to single mountpoint if present
+                            QStringList mps;
+                            QJsonValue mpsVal = po.value("mountpoints");
+                            if (mpsVal.isArray()) {
+                                for (const QJsonValue &mv : mpsVal.toArray()) {
+                                    QString s = mv.toString();
+                                    if (!s.isEmpty()) mps << s;
+                                }
+                            } else {
+                                QString mp = po.value("mountpoint").toString();
+                                if (!mp.isEmpty()) mps << mp;
+                            }
+                            // Truncate long fields for compact tooltips
+                            QString labelDisp = label;
+                            if (labelDisp.size() > 16) labelDisp = labelDisp.left(16) + "…";
+                            QString uuidDisp = uuid;
+                            if (uuidDisp.size() > 8) uuidDisp = uuidDisp.left(8) + "…";
+
+                            QString extra;
+                            if (!labelDisp.isEmpty()) extra += QString(" • LABEL=%1").arg(labelDisp);
+                            if (!uuidDisp.isEmpty()) extra += QString(" • UUID=%1").arg(uuidDisp);
+                            if (!fstype.isEmpty()) extra += QString(" • %1").arg(fstype);
+                            if (!mps.isEmpty()) extra += QString(" • %1").arg(mps.join(", "));
+                            partLines << QString("%1 — %2%3").arg(ppath, humanSize(psize), extra);
+                        }
+                        if (!partLines.isEmpty()) {
+                            tooltip = QString("<div style='min-width:700px; font-size:14px; font-weight:600;'>Partitions on %1</div><div style='min-width:700px; font-size:14px;'>%2</div>")
+                                               .arg(path, partLines.join("<br>"));
+                        } else {
+                            tooltip = QString("<div style='min-width:480px; font-size:14px; font-weight:600;'>No partitions found on %1</div>").arg(path);
+                        }
+
+                        // Card widget: compact single-row with right-aligned size
+                        QFrame *card = new QFrame();
+                        styleCard(card, false);
+                        QHBoxLayout *row = new QHBoxLayout(card);
+                        row->setContentsMargins(4, 0, 4, 0);
+                        row->setSpacing(4);
+                        card->setFixedHeight(20);
+
+                        // Entire row is clickable; no radio button
+
+                        QLabel *info = new QLabel(QString("<b>%1</b> • %2 • %3")
+                                                   .arg(path, nameCombo, iface.isEmpty() ? "Unknown" : iface));
+                        info->setStyleSheet("color: #e6e6e6; font-size: 14px;");
+                        info->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+                        info->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+                        row->addWidget(info, 1);
+
+                        QLabel *sz = new QLabel(humanSize(size));
+                        sz->setStyleSheet("color: white; font-size: 14px; font-weight: bold;");
+                        sz->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+                        row->addWidget(sz, 0, Qt::AlignRight | Qt::AlignVCenter);
+
+                        // Click handling is done via eventFilter
+
+                        // Store drive path + hover text on the card
+                        card->setProperty("drivePath", path);
+                        card->setProperty("hoverTipHtml", tooltip);
+                        card->setAttribute(Qt::WA_Hover, true);
+                        card->setMouseTracking(true);
+                        card->installEventFilter(this);
+                        driveListLayout->addWidget(card);
+                        ++count;
+                    }
+                    if (count == 0) {
+                        driveStatus->setText("No drives found.");
+                        driveStatus->setStyleSheet("color: #FFAA00; font-size: 14px;");
+                    } else {
+                        driveStatus->setText("");
+                    }
+                });
+                QStringList args;
+                args << "-J" << "-b" << "-o" << "NAME,KNAME,PATH,MODEL,VENDOR,SIZE,TYPE,TRAN,FSTYPE,MOUNTPOINTS,LABEL,UUID";
+                proc->start("lsblk", args);
+            };
+
+            // Initial scan
+            QTimer::singleShot(200, drivePage, refreshDrives);
+
+            // Rescan when navigating to Select Drive
+            QObject::connect(contentStack, &QStackedWidget::currentChanged, drivePage, [=](int idx){
+                if (idx == 3) QTimer::singleShot(50, drivePage, refreshDrives);
+            });
+        }
             
         QWidget *settingsPage = createPage("Settings", 
             "Configure system settings including timezone, keyboard layout, user accounts, "
@@ -1544,6 +1958,13 @@ public:
         connect(menuButtonGroup, &QButtonGroup::buttonClicked, this,
                 [=, this](QAbstractButton* button) {
                     int index = menuButtonGroup->id(button);
+                    // If navigating to Select Drive without a chosen branch, clone default
+                    if (index == 3) {
+                        if (repoCloneStarted && !*repoCloneStarted) {
+                            const QString defaultRepo = "https://github.com/aCeTotal/nixlyos_master.git";
+                            doClone(defaultRepo, QString());
+                        }
+                    }
                     contentStack->setCurrentIndex(index);
                     
                     // Start auto-refresh when Internet Connection page is shown
@@ -1593,6 +2014,72 @@ public:
             // Disable window decorations if your WM supports it
             windowHandle()->setFlag(Qt::FramelessWindowHint, false);
         }
+    }
+    
+    bool eventFilter(QObject *obj, QEvent *event) override
+    {
+        QWidget *w = qobject_cast<QWidget*>(obj);
+        if (w && (w->property("hoverTipHtml").isValid())) {
+            switch (event->type()) {
+                case QEvent::Enter:
+                case QEvent::HoverMove:
+                case QEvent::MouseMove: {
+                    const QString text = w->property("hoverTipHtml").toString();
+                    // Lazy-create a custom tooltip widget so we can control size and style
+                    if (!hoverTip) {
+                        hoverTip = new QWidget(nullptr, Qt::ToolTip);
+                        hoverTip->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+                        QVBoxLayout *vl = new QVBoxLayout(hoverTip);
+                        vl->setContentsMargins(12, 10, 12, 10);
+                        vl->setSpacing(0);
+                        hoverTipLabel = new QLabel();
+                        hoverTipLabel->setTextFormat(Qt::RichText);
+                        hoverTipLabel->setWordWrap(true);
+                        hoverTipLabel->setStyleSheet("color: #e6e6e6; font-size: 14px;");
+                        vl->addWidget(hoverTipLabel);
+                        hoverTip->setStyleSheet("background-color: #1e1e1e; border: 1px solid #3A3A3A; border-radius: 6px;");
+                        hoverTip->setMinimumWidth(680);
+                    }
+                    hoverTipLabel->setText(text);
+                    hoverTip->adjustSize();
+                    QPoint pos = QCursor::pos() + QPoint(18, 6);
+                    hoverTip->move(pos);
+                    hoverTip->show();
+                    break;
+                }
+                case QEvent::MouseButtonPress: {
+                    // Select drive card on click
+                    QString path = w->property("drivePath").toString();
+                    if (!path.isEmpty()) {
+                        // Deselect previous
+                        if (currentDriveCard && currentDriveCard != w) {
+                            currentDriveCard->setStyleSheet("QFrame { background-color: transparent; border: none; border-bottom: 1px solid #3A3A3A; } QFrame:hover { background-color: #2A2A2A; }");
+                        }
+                        // Select new
+                        currentDriveCard = qobject_cast<QFrame*>(w);
+                        currentDrivePath = path;
+                        if (currentDriveCard) {
+                            currentDriveCard->setStyleSheet("QFrame { background-color: #2a3f5a; border: none; border-bottom: 1px solid #3A3A3A; }");
+                        }
+                        if (driveSelectedHint) driveSelectedHint->setText(QString("Selected drive: %1").arg(path));
+                        if (installButton) installButton->setEnabled(true);
+                        // Persist for other handlers
+                        this->setProperty("selectedDrivePath", path);
+                    }
+                    if (hoverTip) hoverTip->hide();
+                    break;
+                }
+                case QEvent::HoverLeave:
+                case QEvent::Leave:
+                case QEvent::Wheel: {
+                    if (hoverTip) hoverTip->hide();
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        return QMainWindow::eventFilter(obj, event);
     }
 };
 
